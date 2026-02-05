@@ -1,0 +1,180 @@
+# =================================
+# Etesian Project - .gitignore
+# =================================
+
+# =================================
+# OS Generated Files
+# =================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Accidental files (Windows null device redirect)
+nul
+
+# =================================
+# IDE / Editor Files
+# =================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*~
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+*.iml
+
+# =================================
+# Go Backend
+# =================================
+# Compiled binaries
+backend/*.exe
+backend/*.exe~
+backend/*.dll
+backend/*.so
+backend/*.dylib
+backend/main
+backend/bin/
+
+# Test binary and coverage
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Air live reload (if used)
+backend/tmp/
+
+# Uploaded files (user-generated content)
+backend/uploads/evidences/*
+!backend/uploads/evidences/.gitkeep
+
+# =================================
+# Node.js / React Frontend
+# =================================
+# Dependencies
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+frontend/build/
+frontend/.next/
+frontend/out/
+
+# TypeScript build cache
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Cache directories
+frontend/.cache/
+.cache/
+.npm/
+.pnpm-store/
+
+# Vite cache
+frontend/.vite/
+
+# Testing coverage
+frontend/coverage/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# =================================
+# Environment Files
+# =================================
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test.local
+.env.production
+.env.production.local
+.env*.local
+
+# Backend specific
+backend/.env
+backend/.env.*
+
+# Frontend specific
+frontend/.env
+frontend/.env.*
+
+# =================================
+# Large Data Files
+# =================================
+# MITRE ATT&CK STIX data (~50MB - download separately)
+# Get from: https://github.com/mitre-attack/attack-stix-data
+enterprise-attack.json
+mobile-attack.json
+ics-attack.json
+
+# =================================
+# Database Files
+# =================================
+*.db
+*.sqlite
+*.sqlite3
+*.sql.backup
+!backend/migrations/*.sql
+
+# =================================
+# Temporary & Debug Files
+# =================================
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+logs/
+debug/
+
+# =================================
+# Claude Code
+# =================================
+.claude/
+
+# =================================
+# Secrets & Credentials
+# =================================
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials/
+*_secret*
+*_credentials*
+
+# =================================
+# Docker (if used later)
+# =================================
+# docker-compose.override.yml
+# .docker/
+
+# =================================
+# Test artifacts
+# =================================
+*.test.json
+test-results/
+playwright-report/
