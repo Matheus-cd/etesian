@@ -191,12 +191,17 @@ export function ReportGeneratorPage() {
               segments={[
                 {
                   label: t('detection.detected'),
-                  value: detection_summary.tool_detected,
+                  value: detection_summary.tool_detected - detection_summary.tool_blocked,
                   color: '#22c55e',
                 },
                 {
+                  label: t('detection.status.blocked'),
+                  value: detection_summary.tool_blocked,
+                  color: '#3b82f6',
+                },
+                {
                   label: t('detection.notDetected'),
-                  value: detection_summary.tool_not_detected + detection_summary.final_not_executed,
+                  value: detection_summary.total_techniques - detection_summary.tool_detected - detection_summary.tool_not_applicable,
                   color: '#ef4444',
                 },
                 {
@@ -221,7 +226,7 @@ export function ReportGeneratorPage() {
                 },
                 {
                   label: t('detection.notDetected'),
-                  value: detection_summary.siem_not_detected + detection_summary.final_not_executed,
+                  value: detection_summary.total_techniques - detection_summary.siem_detected - detection_summary.siem_not_applicable,
                   color: '#ef4444',
                 },
                 {
@@ -248,6 +253,11 @@ export function ReportGeneratorPage() {
                   label: t('detection.status.detected'),
                   value: detection_summary.final_detected,
                   color: '#22c55e',
+                },
+                {
+                  label: t('detection.status.blocked'),
+                  value: detection_summary.final_blocked,
+                  color: '#3b82f6',
                 },
                 {
                   label: t('detection.status.partial'),

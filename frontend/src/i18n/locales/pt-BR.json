@@ -269,6 +269,7 @@
     "status": {
       "pending": "Aguardando",
       "detected": "Detectado",
+      "blocked": "Bloqueado",
       "partial": "Parcial",
       "not_detected": "Não Detectado",
       "not_applicable": "N/A",
@@ -280,6 +281,7 @@
     "toolSection": "Detecção por Ferramenta",
     "siemSection": "Detecção por SIEM",
     "detectedByTool": "Detectado",
+    "toolBlocked": "Bloqueado",
     "detectedBySiem": "Detectado",
     "notApplicable": "Não Aplicável",
     "naReason": "Motivo para N/A",
@@ -731,6 +733,61 @@
     "unscheduleConfirmTitle": "Remover do Calendário",
     "unscheduleConfirmMessage": "Tem certeza que deseja remover \"{{name}}\" do calendário? Ele será movido de volta para a lista de não agendados.",
     "unscheduleConfirmButton": "Remover"
+  },
+  "requirement": {
+    "title": "Requisitos",
+    "add": "Adicionar Requisito",
+    "edit": "Editar Requisito",
+    "delete": "Excluir Requisito",
+    "noRequirements": "Nenhum requisito cadastrado ainda",
+    "noRequirementsHint": "Adicione requisitos que precisam ser cumpridos antes da execução dos cenários",
+    "export": "Exportar CSV",
+    "fields": {
+      "title": "Título",
+      "titlePlaceholder": "Ex: Desabilitar tamper protection",
+      "description": "Descrição",
+      "descriptionPlaceholder": "Detalhes sobre o requisito...",
+      "category": "Categoria",
+      "selectCategory": "Selecione a categoria"
+    },
+    "categories": {
+      "acesso": "Acesso",
+      "credencial": "Credencial",
+      "configuracao": "Configuração",
+      "software": "Software",
+      "rede": "Rede",
+      "outro": "Outro"
+    },
+    "status": {
+      "fulfilled": "Cumprido",
+      "pending": "Pendente",
+      "fulfilledBy": "Cumprido por {{user}}",
+      "fulfilledAt": "Cumprido em {{date}}"
+    },
+    "actions": {
+      "fulfill": "Marcar como Cumprido",
+      "unfulfill": "Marcar como Pendente"
+    },
+    "linkedScenarios": "{{count}} cenário vinculado",
+    "linkedScenarios_plural": "{{count}} cenários vinculados",
+    "selectRequirements": "Selecionar requisitos",
+    "selectedRequirements": "Requisitos Selecionados",
+    "noRequirementsForExercise": "Nenhum requisito neste exercício",
+    "scenarioRequirements": "Requisitos",
+    "alerts": {
+      "title": "Alertas de Requisitos",
+      "critical": "Hoje",
+      "high": "Amanhã",
+      "warning": "Em 2 dias",
+      "upcoming": "Em 3 dias",
+      "pendingRequirements": "{{count}} requisito pendente",
+      "pendingRequirements_plural": "{{count}} requisitos pendentes",
+      "scheduledFor": "Agendado para {{date}}"
+    },
+    "confirm": {
+      "delete": "Tem certeza que deseja excluir este requisito? Ele será desvinculado de todos os cenários.",
+      "fulfill": "Marcar este requisito como cumprido?"
+    }
   },
   "errors": {
     "403": {

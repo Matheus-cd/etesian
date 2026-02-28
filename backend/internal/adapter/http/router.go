@@ -23,7 +23,8 @@ type Router struct {
 	exerciseHandler  *handler.ExerciseHandler
 	executionHandler *handler.ExecutionHandler
 	detectionHandler *handler.DetectionHandler
-	reportHandler    *handler.ReportHandler
+	reportHandler      *handler.ReportHandler
+	requirementHandler *handler.RequirementHandler
 
 	authMiddleware     *middleware.AuthMiddleware
 	exerciseMiddleware *middleware.ExerciseAccessMiddleware
@@ -41,6 +42,7 @@ func NewRouter(
 	detectionRepo repository.DetectionRepository,
 	voidRepo repository.DetectionVoidRepository,
 	evidenceRepo repository.EvidenceRepository,
+	requirementRepo repository.ExerciseRequirementRepository,
 	jwtManager *crypto.JWTManager,
 ) *Router {
 	// Create the detection stats service for unified calculation
@@ -51,10 +53,11 @@ func NewRouter(
 		userHandler:      handler.NewUserHandler(userRepo),
 		techniqueHandler: handler.NewTechniqueHandler(techniqueRepo),
 		clientHandler:    handler.NewClientHandler(clientRepo),
-		exerciseHandler:  handler.NewExerciseHandler(exerciseRepo, memberRepo, exerciseTechniqueRepo, userRepo, clientRepo, detectionStatsService),
+		exerciseHandler:  handler.NewExerciseHandler(exerciseRepo, memberRepo, exerciseTechniqueRepo, userRepo, clientRepo, requirementRepo, detectionStatsService),
 		executionHandler: handler.NewExecutionHandler(executionRepo, detectionRepo, voidRepo, evidenceRepo),
 		detectionHandler: handler.NewDetectionHandler(detectionRepo, voidRepo, evidenceRepo, executionRepo),
-		reportHandler:    handler.NewReportHandler(clientRepo, exerciseRepo, memberRepo, exerciseTechniqueRepo, executionRepo, detectionRepo, evidenceRepo, userRepo, detectionStatsService),
+		reportHandler:      handler.NewReportHandler(clientRepo, exerciseRepo, memberRepo, exerciseTechniqueRepo, executionRepo, detectionRepo, evidenceRepo, userRepo, detectionStatsService),
+		requirementHandler: handler.NewRequirementHandler(requirementRepo, userRepo),
 
 		authMiddleware:     middleware.NewAuthMiddleware(jwtManager),
 		exerciseMiddleware: middleware.NewExerciseAccessMiddleware(exerciseRepo),
@@ -164,6 +167,7 @@ func (rt *Router) Setup() http.Handler {
 					r.Get("/detections", rt.detectionHandler.ListByExercise)
 					r.Get("/members", rt.exerciseHandler.ListMembers)
 					r.Get("/detection-stats", rt.exerciseHandler.GetDetectionStats)
+					r.Get("/state", rt.exerciseHandler.GetExerciseState)
 
 					// Manage exercise (lead or admin)
 					r.Group(func(r chi.Router) {
@@ -223,6 +227,46 @@ func (rt *Router) Setup() http.Handler {
 						r.Group(func(r chi.Router) {
 							r.Use(middleware.RequireExerciseRole(entity.RoleInExerciseBlueTeam, entity.RoleInExerciseLead))
 							r.Post("/", rt.detectionHandler.Create)
+						})
+					})
+
+					// Requirements
+					r.Route("/requirements", func(r chi.Router) {
+						// Read: all exercise members
+						r.Get("/", rt.requirementHandler.List)
+						r.Get("/alerts", rt.requirementHandler.GetAlerts)
+						r.Get("/export", rt.requirementHandler.Export)
+
+						// Create: Red Team, Lead, or Admin
+						r.Group(func(r chi.Router) {
+							r.Use(middleware.RequireRedTeamOrLeadOrAdmin)
+							r.Post("/", rt.requirementHandler.Create)
+						})
+
+						// Per-requirement operations
+						r.Route("/{requirementID}", func(r chi.Router) {
+							// Update/Delete: Red Team, Lead, or Admin
+							r.Group(func(r chi.Router) {
+								r.Use(middleware.RequireRedTeamOrLeadOrAdmin)
+								r.Put("/", rt.requirementHandler.Update)
+								r.Delete("/", rt.requirementHandler.Delete)
+							})
+
+							// Fulfill: Blue Team or Lead
+							r.Group(func(r chi.Router) {
+								r.Use(middleware.RequireExerciseRole(entity.RoleInExerciseBlueTeam, entity.RoleInExerciseLead))
+								r.Patch("/fulfill", rt.requirementHandler.Fulfill)
+							})
+						})
+					})
+
+					// Scenario requirements (on technique routes)
+					r.Route("/techniques/{techniqueID}/requirements", func(r chi.Router) {
+						r.Get("/", rt.requirementHandler.GetScenarioRequirements)
+
+						r.Group(func(r chi.Router) {
+							r.Use(middleware.RequireRedTeamOrLeadOrAdmin)
+							r.Put("/", rt.requirementHandler.SetScenarioRequirements)
 						})
 					})
 				})

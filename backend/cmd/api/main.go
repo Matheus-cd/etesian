@@ -41,6 +41,7 @@ func main() {
 	detectionRepo := postgres.NewDetectionRepository(db)
 	voidRepo := postgres.NewDetectionVoidRepository(db)
 	evidenceRepo := postgres.NewEvidenceRepository(db)
+	requirementRepo := postgres.NewExerciseRequirementRepository(db)
 
 	// Initialize JWT manager
 	jwtManager := crypto.NewJWTManager(
@@ -63,6 +64,7 @@ func main() {
 		detectionRepo,
 		voidRepo,
 		evidenceRepo,
+		requirementRepo,
 		jwtManager,
 	)
 

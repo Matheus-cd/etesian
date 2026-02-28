@@ -27,6 +27,9 @@
 - **Agenda/Calendário de Cenários**: Visualização de calendário com drag & drop para agendamento de técnicas
 
 ### Pendente
+- Cadastro de requisitos por exercício com vínculo a cenários e painel de alertas
+- Timeline de execução e detecção no relatório do exercício
+- Visualização em grafos com Neo4j (cenários, detecções, TTPs MITRE)
 - Exportação de relatórios (PDF/HTML)
 - Comparação histórica entre exercícios
 - Heatmap MITRE ATT&CK Matrix
@@ -62,7 +65,10 @@ Comparação com plataformas estabelecidas: **Vectr**, **PlexTrac**, **AttackIQ*
 | Métrica/Funcionalidade | Prioridade | Descrição |
 |------------------------|------------|-----------|
 | **Visibilidade por Tática** | ✅ Implementado | Painel de cobertura por tática na página de relatório |
+| **Cadastro de Requisitos de Exercício** | 🔴 Alta | Requisitos a nível de exercício, vinculados a cenários; Blue Team marca como cumprido; painel de alertas por proximidade de execução |
 | **Classificação de Severidade** | 🔴 Alta | Priorizar técnicas por impacto (Critical, High, Medium, Low) |
+| **Timeline de Execução e Detecção** | 🟡 Média | Linha do tempo visual de execuções e detecções no relatório, com janelas de exposição |
+| **Visualização em Grafos (Neo4j)** | 🟡 Média | Grafo interativo de cenários, detecções e TTPs MITRE, inspirado no Microsoft Defender for Endpoint |
 | **MTTD vs MTTR** | 🟡 Média | Separar "tempo para detectar" de "tempo para responder/remediar" |
 | **Comparação Histórica** | 🟡 Média | Tendências entre exercícios (evolução ao longo do tempo) |
 | **Heatmap de Cobertura** | 🟡 Média | Visualização matriz ATT&CK com status de detecção |
@@ -90,10 +96,12 @@ Comparação com plataformas estabelecidas: **Vectr**, **PlexTrac**, **AttackIQ*
 |---|---------|---------------|--------|
 | 1 | Relatórios por Tática | Visualizar gaps por fase do ataque | ✅ Implementado |
 | 2 | Dashboard com métricas reais | Substituir valores hardcoded | ✅ Implementado |
-| 3 | Classificação de Severidade | Priorizar remediação | 🔲 Pendente |
-| 4 | Exportação de Relatórios | Entregável para stakeholders | 🔲 Pendente |
-| 5 | Comparação entre Exercícios | Demonstrar evolução ao cliente | 🔲 Pendente |
-| 6 | Heatmap MITRE ATT&CK | Visualização executiva | 🔲 Pendente |
+| 3 | Cadastro de Requisitos de Exercício | Preparar ambiente, alertar Blue Team sobre prazos | 🔲 Pendente |
+| 4 | Classificação de Severidade | Priorizar remediação | 🔲 Pendente |
+| 5 | Exportação de Relatórios | Entregável para stakeholders | 🔲 Pendente |
+| 6 | Comparação entre Exercícios | Demonstrar evolução ao cliente | 🔲 Pendente |
+| 7 | Visualização em Grafos (Neo4j) | Correlação visual de cenários, detecções e TTPs MITRE | 🔲 Pendente |
+| 8 | Heatmap MITRE ATT&CK | Visualização executiva | 🔲 Pendente |
 
 ### 💡 Conclusão da Avaliação
 
@@ -110,6 +118,8 @@ A plataforma **atende aos requisitos fundamentais** de um exercício Purple Team
 - ✅ Serviço unificado de estatísticas (consistência entre views)
 
 **Gaps restantes** comparados a ferramentas comerciais:
+- Falta cadastro de requisitos de exercício com alertas de prazo
+- Falta visualização em grafos para correlação visual (referência: Defender for Endpoint)
 - Falta exportação de relatórios (PDF/HTML)
 - Falta comparação histórica para demonstrar evolução
 - Falta heatmap da matriz MITRE ATT&CK
@@ -241,6 +251,17 @@ Gap Tool→SIEM = siem_detected_at - tool_detected_at (somente se ambos detectad
   - Células por técnica
   - Cores por status de detecção
 
+- [ ] **Timeline de Execução e Detecção**: Linha do tempo visual do exercício
+  - Eixo X: Tempo (cronológico, do início ao fim do exercício)
+  - Marcadores de execução (Red Team) com ícone/cor distinto
+  - Marcadores de detecção Tool e SIEM (Blue Team) vinculados à execução correspondente
+  - Linhas conectando execução → detecção Tool → detecção SIEM para visualizar o tempo de resposta
+  - Código de cores por status: detectado (verde), bloqueado (azul), parcial (amarelo), não detectado (vermelho)
+  - Tooltip ao passar o mouse: nome da técnica, MITRE ID, tempos, status
+  - Zoom e scroll horizontal para exercícios longos
+  - Filtros por tática, status de detecção e tipo (Tool/SIEM)
+  - Visão clara de janelas de exposição (tempo entre execução e detecção)
+
 ### 2.4 Exportação 🔲 PENDENTE
 
 - [ ] Exportar relatório em PDF
@@ -295,7 +316,129 @@ Gap Tool→SIEM = siem_detected_at - tool_detected_at (somente se ambos detectad
 - [ ] Templates por tipo de teste (ransomware, lateral movement, etc)
 - [ ] Compartilhar templates entre usuários
 
-### 4.5 Agenda/Calendário de Cenários ✅ CONCLUÍDA
+### 4.5 Cadastro de Requisitos de Exercício 🔲 PENDENTE
+
+Sistema de pré-requisitos a nível de exercício. O Red Team, Purple Lead ou Admin cadastra os requisitos necessários no exercício (ex: "Desabilitar tamper protection no endpoint X", "Liberar porta 4444 no firewall"). Ao adicionar cenários, seleciona quais requisitos se aplicam. O Blue Team visualiza e marca como cumpridos. Um painel de alertas mostra cenários com requisitos pendentes próximos da execução.
+
+#### Modelo de Dados
+
+```
+exercise_requirements (requisitos pertencem ao exercício)
+├── id UUID PK
+├── exercise_id UUID FK → exercises
+├── title VARCHAR(200) NOT NULL
+├── description TEXT
+├── category ENUM (acesso, credencial, configuração, software, rede, outro)
+├── fulfilled BOOLEAN DEFAULT FALSE
+├── fulfilled_by UUID FK → users (quem marcou como cumprido)
+├── fulfilled_at TIMESTAMP
+├── created_by UUID FK → users
+├── created_at TIMESTAMP
+└── updated_at TIMESTAMP
+
+scenario_requirement_links (many-to-many: cenários ↔ requisitos)
+├── id UUID PK
+├── exercise_technique_id UUID FK → exercise_techniques
+├── requirement_id UUID FK → exercise_requirements
+└── created_at TIMESTAMP
+```
+
+**Fluxo:**
+1. Red/Lead/Admin cria requisitos no exercício (nível do exercício, reutilizáveis)
+2. Red/Lead/Admin ao adicionar/editar cenário seleciona quais requisitos se aplicam (dropdown multi-select dos requisitos do exercício; pode deixar vazio)
+3. Blue Team vê quais requisitos cada cenário precisa e marca cada um como "Cumprido"
+4. Painel de alertas mostra cenários com requisitos não cumpridos próximos da data de execução
+
+#### Backend
+
+**Migration**
+- [ ] Criar tabela `exercise_requirements` (id, exercise_id, title, description, category, fulfilled, fulfilled_by, fulfilled_at, created_by, created_at, updated_at)
+- [ ] Criar tabela `scenario_requirement_links` (id, exercise_technique_id, requirement_id, created_at)
+- [ ] Índices: exercise_id em requirements, exercise_technique_id + requirement_id (unique) em links
+
+**Entidades**
+- [ ] Criar entidade `ExerciseRequirement` no domínio
+- [ ] Criar entidade `ScenarioRequirementLink` no domínio
+
+**Repositório**
+- [ ] CRUD de `exercise_requirements` vinculado ao exercício
+- [ ] CRUD de `scenario_requirement_links` vinculado ao ExerciseTechnique
+- [ ] Query: listar requisitos de um exercício com contagem de cenários vinculados
+- [ ] Query: listar requisitos de um cenário específico com status de cumprimento
+- [ ] Query: cenários com requisitos não cumpridos + data agendada (para painel de alertas)
+
+**Endpoints - Requisitos do Exercício**
+- [ ] `POST /exercises/{id}/requirements` - Criar requisito (Red/Lead/Admin)
+- [ ] `GET /exercises/{id}/requirements` - Listar requisitos do exercício (todos os membros)
+- [ ] `PUT /exercises/{id}/requirements/{requirementId}` - Editar requisito (Red/Lead/Admin)
+- [ ] `DELETE /exercises/{id}/requirements/{requirementId}` - Remover requisito (Red/Lead/Admin)
+- [ ] `PATCH /exercises/{id}/requirements/{requirementId}/fulfill` - Marcar como cumprido/não cumprido (Blue/Lead)
+- [ ] `GET /exercises/{id}/requirements/export` - Exportar em CSV/JSON (todos os membros)
+
+**Endpoints - Vínculo Cenário ↔ Requisitos**
+- [ ] `PUT /exercises/{id}/techniques/{techniqueId}/requirements` - Definir requisitos do cenário (body: array de requirement_ids; Red/Lead/Admin)
+- [ ] `GET /exercises/{id}/techniques/{techniqueId}/requirements` - Listar requisitos do cenário
+
+**Endpoint - Painel de Alertas**
+- [ ] `GET /exercises/{id}/requirements/alerts` - Retorna cenários com requisitos não cumpridos agrupados por urgência:
+  - `critical`: execução no dia (0 dias)
+  - `high`: execução em 1 dia
+  - `warning`: execução em 2 dias
+  - `upcoming`: execução em 3 dias
+  - Cada item: cenário (nome, MITRE ID, data agendada), lista de requisitos pendentes
+  - Base de cálculo: `scheduled_start_time` do ExerciseTechnique vs data atual
+
+**Permissões**
+- [ ] Criar/editar/remover requisitos: Red Team, Lead, Admin
+- [ ] Vincular requisitos a cenários: Red Team, Lead, Admin
+- [ ] Marcar como cumprido: Blue Team, Lead
+- [ ] Visualizar: todos os membros do exercício
+
+#### Frontend - Gestão de Requisitos (Red/Lead/Admin)
+
+**Seção de Requisitos na Página do Exercício**
+- [ ] Nova aba ou seção colapsável "Requisitos" na página de detalhes do exercício
+- [ ] Tabela de requisitos do exercício com colunas: Título, Categoria, Status (cumprido/pendente), Cenários vinculados, Criado por
+- [ ] Botão "Adicionar Requisito" abre formulário inline ou modal:
+  - Título (obrigatório)
+  - Descrição (opcional, textarea)
+  - Categoria (dropdown: acesso, credencial, configuração, software, rede, outro)
+- [ ] Ações por requisito: editar, remover (com confirmação se vinculado a cenários)
+- [ ] Indicador visual: badge de quantidade de cenários que usam cada requisito
+
+**Vínculo no Formulário de Cenário**
+- [ ] Ao adicionar ou editar cenário (ExerciseTechnique), exibir campo multi-select "Requisitos"
+- [ ] Dropdown listando os requisitos cadastrados no exercício (título + categoria como tag)
+- [ ] Permite selecionar múltiplos ou nenhum (cenários sem pré-requisitos)
+- [ ] Chips/tags dos requisitos selecionados com opção de remover individualmente
+
+#### Frontend - Visualização Blue Team
+
+**Requisitos por Cenário**
+- [ ] No card do cenário, badge indicando quantidade de requisitos (ex: "3 requisitos, 1 pendente")
+- [ ] Cor do badge: verde (todos cumpridos), amarelo (parcial), vermelho (nenhum cumprido), cinza (sem requisitos)
+- [ ] Ao expandir/clicar no cenário, seção mostrando lista de requisitos com checkbox para marcar como "Cumprido"
+- [ ] Ao marcar como cumprido, registra `fulfilled_by` e `fulfilled_at` automaticamente
+
+**Painel de Alertas de Requisitos Pendentes**
+- [ ] Painel fixo ou destaque no topo da página do exercício (visível para todos, especialmente Blue Team)
+- [ ] Agrupa cenários por nível de urgência baseado na `scheduled_start_time`:
+  - 🔴 **Hoje** (0 dias): "Cenário X executa HOJE e tem N requisitos pendentes"
+  - 🟠 **Amanhã** (1 dia): "Cenário Y executa amanhã e tem N requisitos pendentes"
+  - 🟡 **Em 2 dias**: "Cenário Z executa em 2 dias e tem N requisitos pendentes"
+  - 🔵 **Em 3 dias**: "Cenário W executa em 3 dias e tem N requisitos pendentes"
+- [ ] Cada item do alerta mostra: nome do cenário, MITRE ID, data/hora agendada, lista dos requisitos pendentes
+- [ ] Botão rápido "Marcar como Cumprido" direto no alerta (sem precisar navegar ao cenário)
+- [ ] Painel some automaticamente quando não há alertas pendentes
+- [ ] Polling ou refresh a cada N segundos para atualizar em tempo real
+- [ ] Contagem total de alertas como badge no título da seção
+
+#### Frontend - Exportação em Tabela
+- [ ] Botão de exportação na seção de requisitos do exercício
+- [ ] Exportar em CSV com colunas: Requisito, Categoria, Status, Cumprido por, Data de Cumprimento, Cenários Vinculados (MITRE IDs), Datas Agendadas
+- [ ] Opção de filtrar antes de exportar (por categoria, status, cenário)
+
+
 
 Permite que analistas de Red Team ou Purple Team visualizem e organizem cenários em um calendário, facilitando o planejamento e execução do exercício.
 
@@ -351,6 +494,121 @@ Permite que analistas de Red Team ou Purple Team visualizem e organizem cenário
 
 ---
 
+## Fase 6: Visualização em Grafos com Neo4j 🔲 PENDENTE
+
+Visualização interativa inspirada no **Microsoft Defender for Endpoint** (Investigation Graph), permitindo explorar os cenários executados, suas detecções e as TTPs do MITRE ATT&CK correlacionadas em formato de grafo. Layout em três painéis: timeline vertical à esquerda, grafo central, e painel de detalhes à direita.
+
+### 6.1 Infraestrutura - Neo4j
+
+#### Setup
+- [ ] Adicionar Neo4j ao `docker-compose.yml` (Neo4j Community Edition)
+- [ ] Criar módulo de conexão Go para Neo4j (`neo4j-go-driver`)
+- [ ] Configurar variáveis de ambiente (NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+
+#### Modelo de Grafo
+- [ ] Nós (Nodes):
+  - `(:Exercise {id, name, status, client})` - Exercício
+  - `(:Technique {id, mitre_id, name, description})` - Técnica MITRE ATT&CK
+  - `(:Tactic {id, name})` - Tática MITRE ATT&CK
+  - `(:Scenario {id, exercise_technique_id, status, scheduled_date})` - Cenário (instância da técnica no exercício)
+  - `(:Execution {id, executed_at, executed_by, notes})` - Execução pelo Red Team
+  - `(:Detection {id, status, tool_detected, tool_blocked, siem_detected})` - Detecção pelo Blue Team
+  - `(:Member {id, user_id, username, role})` - Membro do exercício
+- [ ] Relacionamentos (Edges):
+  - `(:Exercise)-[:HAS_SCENARIO]->(:Scenario)`
+  - `(:Scenario)-[:USES_TECHNIQUE]->(:Technique)`
+  - `(:Technique)-[:BELONGS_TO_TACTIC]->(:Tactic)`
+  - `(:Scenario)-[:EXECUTED_AS]->(:Execution)`
+  - `(:Execution)-[:DETECTED_BY]->(:Detection)`
+  - `(:Execution)-[:PERFORMED_BY]->(:Member)`
+  - `(:Detection)-[:REGISTERED_BY]->(:Member)`
+  - `(:Tactic)-[:NEXT_PHASE]->(:Tactic)` - Ordem da kill chain
+
+#### Sincronização de Dados
+- [ ] Sync service: PostgreSQL → Neo4j (event-driven ou batch)
+- [ ] Sincronizar ao criar/atualizar exercícios, execuções e detecções
+- [ ] Endpoint para forçar re-sync completo de um exercício: `POST /exercises/{id}/graph/sync`
+
+### 6.2 Backend - API de Grafos
+
+#### Endpoints
+```
+GET  /api/v1/exercises/{id}/graph                   - Grafo completo do exercício
+GET  /api/v1/exercises/{id}/graph/scenario/{scenarioId} - Subgrafo de um cenário específico
+GET  /api/v1/exercises/{id}/graph/tactic/{tacticId}     - Subgrafo por tática
+GET  /api/v1/exercises/{id}/graph/timeline              - Dados para timeline vertical
+```
+
+#### Queries Cypher
+- [ ] Grafo completo: todos os nós e relacionamentos do exercício
+- [ ] Subgrafo por cenário: cenário → execuções → detecções → técnica → tática
+- [ ] Subgrafo por tática: tática → técnicas → cenários → execuções → detecções
+- [ ] Kill chain path: caminho entre táticas na ordem de ataque
+- [ ] Cenários não detectados: filtrar nós sem detecção ou com status not_detected
+
+### 6.3 Frontend - Visualização em Grafos
+
+#### Layout de Três Painéis (inspirado no Defender for Endpoint)
+
+**Painel Esquerdo - Timeline Vertical do Cenário**
+- [ ] Timeline vertical cronológica das ações do cenário selecionado
+- [ ] Marcadores de execução (Red Team) com timestamp e executor
+- [ ] Marcadores de detecção (Blue Team) com timestamp, tipo (Tool/SIEM), e status
+- [ ] Indicador visual de tempo entre execução e detecção (janela de exposição)
+- [ ] Ícones distintos: espada (execução), escudo (detecção Tool), radar (detecção SIEM)
+- [ ] Código de cores: vermelho (execução), verde (detectado), azul (bloqueado), amarelo (parcial)
+- [ ] Scroll vertical para cenários com muitas ações
+- [ ] Collapsar/expandir detalhes de cada evento
+
+**Painel Central - Grafo Interativo**
+- [ ] Renderização com biblioteca de grafos (react-force-graph, vis-network ou cytoscape.js)
+- [ ] Nós com ícones e cores por tipo:
+  - Exercício: ícone central, cor roxa
+  - Tática: hexágono, cor por fase da kill chain
+  - Técnica: losango, cor conforme MITRE
+  - Cenário: círculo, cor por status (verde=detectado, vermelho=não detectado, azul=bloqueado)
+  - Execução: triângulo vermelho (Red Team)
+  - Detecção: escudo verde/azul (Blue Team)
+- [ ] Arestas com label do relacionamento e direção animada
+- [ ] Zoom, pan e drag dos nós
+- [ ] Agrupamento automático por tática (cluster layout)
+- [ ] Highlight do caminho ao selecionar um nó (nós conectados destacados, demais esmaecidos)
+- [ ] Filtros no topo: por tática, status de detecção, período, membro
+- [ ] Legenda interativa para toggle de tipos de nó
+- [ ] Layout force-directed com opção de layout hierárquico (kill chain da esquerda para direita)
+
+**Painel Direito - Detalhes do Elemento Selecionado**
+- [ ] Ao clicar em um nó do grafo, exibir detalhes contextuais:
+  - **Cenário**: técnica MITRE, tática, status, datas, requisitos
+  - **Execução**: timestamp, executor, notas, evidências (com preview)
+  - **Detecção**: status Tool/SIEM, bloqueado, tempos de resposta, evidências
+  - **Técnica**: ID MITRE, nome, descrição, tática, subtécnicas
+  - **Tática**: nome, quantidade de cenários, taxa de detecção
+- [ ] Links rápidos: abrir modal de detecção, ir para relatório, ver evidências
+- [ ] Mini-resumo de métricas do elemento (MTTD, taxa de detecção se for tática)
+- [ ] Navegação entre elementos relacionados (clicar em links para recentrar o grafo)
+
+#### Interações e UX
+- [ ] Duplo clique em nó: expandir/colapsar nós filhos
+- [ ] Clique simples: selecionar nó, atualizar painéis laterais e timeline
+- [ ] Hover: tooltip com resumo rápido
+- [ ] Botão "Centralizar" para resetar o zoom e posição
+- [ ] Botão "Expandir Tudo" / "Colapsar por Tática"
+- [ ] Modo fullscreen para o grafo
+- [ ] Exportar imagem do grafo (PNG/SVG)
+
+### 6.4 Stack Técnico
+
+| Componente | Tecnologia | Justificativa |
+|---|---|---|
+| **Banco de Grafos** | Neo4j Community Edition | Referência para grafos, queries Cypher expressivas |
+| **Driver Go** | `neo4j/neo4j-go-driver/v5` | Driver oficial, suporte a transações |
+| **Visualização Frontend** | `react-force-graph-2d` ou `cytoscape.js` | Performance com muitos nós, customização avançada |
+| **Layout** | Force-directed + hierárquico | Force para exploração, hierárquico para kill chain |
+| **Timeline** | Componente custom com Tailwind | Controle total sobre UX da timeline vertical |
+
+---
+
 ## Priorização Sugerida
 
 | Fase | Prioridade | Status |
@@ -360,6 +618,7 @@ Permite que analistas de Red Team ou Purple Team visualizem e organizem cenário
 | 3. Comparação Histórica | Média | 🔲 Pendente |
 | 4. Melhorias de UX | Média | 🔄 Em progresso (DateTimePicker + Calendário concluídos) |
 | 5. Integrações | Baixa | 🔲 Pendente |
+| 6. Visualização em Grafos (Neo4j) | Média | 🔲 Pendente |
 
 ---
 
@@ -369,6 +628,7 @@ Permite que analistas de Red Team ou Purple Team visualizem e organizem cenário
 - **Geração de PDF**: `go-wkhtmltopdf` ou `chromedp`
 - **Cálculos estatísticos**: Implementar em Go puro
 - **Cache de métricas**: Redis (opcional)
+- **Banco de grafos**: Neo4j Community Edition + `neo4j/neo4j-go-driver/v5`
 
 ### Frontend
 - **Gráficos**: `recharts` ou `chart.js` (React wrappers)
@@ -376,6 +636,7 @@ Permite que analistas de Red Team ou Purple Team visualizem e organizem cenário
 - **Data tables**: `@tanstack/react-table` para tabelas complexas
 - **Calendário**: `react-big-calendar` ou `@fullcalendar/react` para visualização de agenda
 - **Drag & Drop**: `@dnd-kit/core` para arrastar cenários entre dias (leve e moderno)
+- **Grafos**: `react-force-graph-2d` ou `cytoscape.js` para visualização interativa de grafos
 
 ---
 
@@ -397,7 +658,10 @@ Permite que analistas de Red Team ou Purple Team visualizem e organizem cenário
 13. ~~**Implementar visualização de calendário com drag & drop para cenários**~~ ✅
 
 ### Pendentes
-1. **Implementar exportação de relatório em PDF**
-2. **Adicionar gráfico de tempo de resposta por técnica (linha/barra)**
-3. **Implementar heatmap da matriz MITRE ATT&CK**
-4. **Criar endpoint de comparação histórica entre exercícios**
+1. **Implementar cadastro de requisitos de exercício** (entidade, API, vínculo a cenários, painel de alertas, exportação)
+2. **Implementar timeline de execução e detecção** (linha do tempo visual no relatório)
+3. **Implementar exportação de relatório em PDF**
+4. **Adicionar gráfico de tempo de resposta por técnica (linha/barra)**
+5. **Implementar heatmap da matriz MITRE ATT&CK**
+6. **Implementar visualização em grafos com Neo4j** (grafo interativo + timeline + detalhes)
+7. **Criar endpoint de comparação histórica entre exercícios**

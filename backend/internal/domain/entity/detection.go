@@ -11,6 +11,7 @@ type DetectionStatus string
 const (
 	DetectionStatusPending       DetectionStatus = "pending"
 	DetectionStatusDetected      DetectionStatus = "detected"
+	DetectionStatusBlocked       DetectionStatus = "blocked"
 	DetectionStatusPartial       DetectionStatus = "partial"
 	DetectionStatusNotDetected   DetectionStatus = "not_detected"
 	DetectionStatusNotApplicable DetectionStatus = "not_applicable"
@@ -30,6 +31,7 @@ type Detection struct {
 	ToolNotes         *string    `db:"tool_notes" json:"tool_notes"`
 	ToolNotApplicable bool       `db:"tool_not_applicable" json:"tool_not_applicable"`
 	ToolNAReason      *string    `db:"tool_na_reason" json:"tool_na_reason"`
+	ToolBlocked       bool       `db:"tool_blocked" json:"tool_blocked"`
 
 	// SIEM detection
 	SIEMDetected      bool       `db:"siem_detected" json:"siem_detected"`
@@ -84,7 +86,7 @@ func (d *Detection) CalculateToolToSIEMGap() *int64 {
 
 func (s DetectionStatus) IsValid() bool {
 	switch s {
-	case DetectionStatusPending, DetectionStatusDetected, DetectionStatusPartial, DetectionStatusNotDetected, DetectionStatusNotApplicable, DetectionStatusVoided:
+	case DetectionStatusPending, DetectionStatusDetected, DetectionStatusBlocked, DetectionStatusPartial, DetectionStatusNotDetected, DetectionStatusNotApplicable, DetectionStatusVoided:
 		return true
 	}
 	return false

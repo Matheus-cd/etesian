@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -24,6 +25,7 @@ type ExerciseHandler struct {
 	techniqueRepo         repository.ExerciseTechniqueRepository
 	userRepo              repository.UserRepository
 	clientRepo            repository.ClientRepository
+	requirementRepo       repository.ExerciseRequirementRepository
 	detectionStatsService *service.DetectionStatsService
 }
 
@@ -33,6 +35,7 @@ func NewExerciseHandler(
 	techniqueRepo repository.ExerciseTechniqueRepository,
 	userRepo repository.UserRepository,
 	clientRepo repository.ClientRepository,
+	requirementRepo repository.ExerciseRequirementRepository,
 	detectionStatsService *service.DetectionStatsService,
 ) *ExerciseHandler {
 	return &ExerciseHandler{
@@ -41,6 +44,7 @@ func NewExerciseHandler(
 		techniqueRepo:         techniqueRepo,
 		userRepo:              userRepo,
 		clientRepo:            clientRepo,
+		requirementRepo:       requirementRepo,
 		detectionStatsService: detectionStatsService,
 	}
 }
@@ -1124,6 +1128,7 @@ type DetectionStatsResponse struct {
 	ToolDetected      int     `json:"tool_detected"`
 	ToolNotDetected   int     `json:"tool_not_detected"`
 	ToolNotApplicable int     `json:"tool_not_applicable"`
+	ToolBlocked       int     `json:"tool_blocked"`
 	ToolRate          float64 `json:"tool_rate"`
 
 	// SIEM detection stats
@@ -1134,6 +1139,7 @@ type DetectionStatsResponse struct {
 
 	// Final status (combined)
 	FinalDetected      int `json:"final_detected"`
+	FinalBlocked       int `json:"final_blocked"`
 	FinalPartial       int `json:"final_partial"`
 	FinalNotDetected   int `json:"final_not_detected"`
 	FinalNotApplicable int `json:"final_not_applicable"`
@@ -1149,6 +1155,7 @@ type TacticStatResponse struct {
 	Tactic        string  `json:"tactic"`
 	Total         int     `json:"total"`
 	Detected      int     `json:"detected"`
+	Blocked       int     `json:"blocked"`
 	Partial       int     `json:"partial"`
 	NotDetected   int     `json:"not_detected"`
 	NotApplicable int     `json:"not_applicable"`
@@ -1210,6 +1217,7 @@ func (h *ExerciseHandler) GetDetectionStats(w http.ResponseWriter, r *http.Reque
 			Tactic:        stat.Tactic,
 			Total:         stat.Total,
 			Detected:      stat.Detected,
+			Blocked:       stat.Blocked,
 			Partial:       stat.Partial,
 			NotDetected:   stat.NotDetected,
 			NotApplicable: stat.NotApplicable,
@@ -1226,12 +1234,14 @@ func (h *ExerciseHandler) GetDetectionStats(w http.ResponseWriter, r *http.Reque
 		ToolDetected:       stats.ToolDetected,
 		ToolNotDetected:    stats.ToolNotDetected,
 		ToolNotApplicable:  stats.ToolNotApplicable,
+		ToolBlocked:        stats.ToolBlocked,
 		ToolRate:           stats.ToolRate,
 		SIEMDetected:       stats.SIEMDetected,
 		SIEMNotDetected:    stats.SIEMNotDetected,
 		SIEMNotApplicable:  stats.SIEMNotApplicable,
 		SIEMRate:           stats.SIEMRate,
 		FinalDetected:      stats.FinalDetected,
+		FinalBlocked:       stats.FinalBlocked,
 		FinalPartial:       stats.FinalPartial,
 		FinalNotDetected:   stats.FinalNotDetected,
 		FinalNotApplicable: stats.FinalNotApplicable,
@@ -1241,4 +1251,248 @@ func (h *ExerciseHandler) GetDetectionStats(w http.ResponseWriter, r *http.Reque
 	}
 
 	response.Success(w, resp)
+}
+
+// Unified exercise state endpoint - replaces multiple polling requests with a single one
+
+type TechniqueDetectionState struct {
+	HasExecution    bool              `json:"has_execution"`
+	LatestDetection *entity.Detection `json:"latest_detection,omitempty"`
+}
+
+type ExerciseStateResponse struct {
+	Techniques            interface{}                          `json:"techniques"`
+	TechniqueDetections   map[string]*TechniqueDetectionState  `json:"technique_detections"`
+	TechniqueRequirements map[string][]RequirementResponse     `json:"technique_requirements"`
+	DetectionStats        DetectionStatsResponse               `json:"detection_stats"`
+	Requirements          []RequirementResponse                `json:"requirements"`
+	RequirementAlerts     RequirementAlertsResponse            `json:"requirement_alerts"`
+}
+
+func (h *ExerciseHandler) GetExerciseState(w http.ResponseWriter, r *http.Request) {
+	exerciseIDStr := chi.URLParam(r, "exerciseID")
+	exerciseID, err := uuid.Parse(exerciseIDStr)
+	if err != nil {
+		response.BadRequest(w, "Invalid exercise ID")
+		return
+	}
+
+	ctx := r.Context()
+
+	// 1. Get techniques with details
+	techniques, err := h.techniqueRepo.GetByExerciseWithDetails(ctx, exerciseID)
+	if err != nil {
+		response.InternalError(w, "Failed to load techniques")
+		return
+	}
+
+	// 2. Per-technique: detection state + scenario requirements
+	techniqueDetections := make(map[string]*TechniqueDetectionState)
+	techniqueRequirements := make(map[string][]RequirementResponse)
+	var detectionResults []*service.TechniqueDetectionResult
+
+	for _, et := range techniques {
+		etIDStr := et.ID.String()
+
+		// Detection
+		tacticName := "Unknown"
+		if et.Technique != nil && et.Technique.Tactic != nil {
+			tacticName = *et.Technique.Tactic
+		}
+
+		detResult, _ := h.detectionStatsService.CalculateForTechnique(
+			ctx, et.ID, et.TechniqueID, tacticName,
+			false, et.Status, nil, nil,
+		)
+		detectionResults = append(detectionResults, detResult)
+
+		techniqueDetections[etIDStr] = &TechniqueDetectionState{
+			HasExecution:    detResult.HasExecution,
+			LatestDetection: detResult.LatestDetection,
+		}
+
+		// Scenario requirements
+		reqs, err := h.requirementRepo.GetByScenario(ctx, et.ID)
+		if err == nil {
+			reqResps := make([]RequirementResponse, 0, len(reqs))
+			for i := range reqs {
+				reqResps = append(reqResps, h.reqToResponse(ctx, &reqs[i]))
+			}
+			techniqueRequirements[etIDStr] = reqResps
+		} else {
+			techniqueRequirements[etIDStr] = []RequirementResponse{}
+		}
+	}
+
+	// 3. Aggregated detection stats
+	stats := h.detectionStatsService.CalculateStats(detectionResults)
+	tacticStatsMap := h.detectionStatsService.CalculateTacticStats(detectionResults)
+
+	var tacticStatsResp []TacticStatResponse
+	for _, stat := range tacticStatsMap {
+		tacticStatsResp = append(tacticStatsResp, TacticStatResponse{
+			Tactic:        stat.Tactic,
+			Total:         stat.Total,
+			Detected:      stat.Detected,
+			Blocked:       stat.Blocked,
+			Partial:       stat.Partial,
+			NotDetected:   stat.NotDetected,
+			NotApplicable: stat.NotApplicable,
+			Pending:       stat.Pending,
+			NotExecuted:   stat.NotExecuted,
+			SIEMRate:      stat.SIEMRate,
+		})
+	}
+
+	detectionStatsResp := DetectionStatsResponse{
+		TotalTechniques:    stats.TotalTechniques,
+		TotalWithExecution: stats.TotalWithExecution,
+		TotalWithDetection: stats.TotalWithDetection,
+		ToolDetected:       stats.ToolDetected,
+		ToolNotDetected:    stats.ToolNotDetected,
+		ToolNotApplicable:  stats.ToolNotApplicable,
+		ToolBlocked:        stats.ToolBlocked,
+		ToolRate:           stats.ToolRate,
+		SIEMDetected:       stats.SIEMDetected,
+		SIEMNotDetected:    stats.SIEMNotDetected,
+		SIEMNotApplicable:  stats.SIEMNotApplicable,
+		SIEMRate:           stats.SIEMRate,
+		FinalDetected:      stats.FinalDetected,
+		FinalBlocked:       stats.FinalBlocked,
+		FinalPartial:       stats.FinalPartial,
+		FinalNotDetected:   stats.FinalNotDetected,
+		FinalNotApplicable: stats.FinalNotApplicable,
+		FinalPending:       stats.FinalPending,
+		FinalNotExecuted:   stats.FinalNotExecuted,
+		TacticStats:        tacticStatsResp,
+	}
+
+	// 4. Exercise-level requirements
+	allReqs, err := h.requirementRepo.GetByExercise(ctx, exerciseID)
+	if err != nil {
+		allReqs = []entity.ExerciseRequirement{}
+	}
+	requirementResponses := make([]RequirementResponse, 0, len(allReqs))
+	for i := range allReqs {
+		requirementResponses = append(requirementResponses, h.reqToResponse(ctx, &allReqs[i]))
+	}
+
+	// 5. Requirement alerts
+	alerts, err := h.requirementRepo.GetUnfulfilledWithSchedule(ctx, exerciseID)
+	if err != nil {
+		alerts = []entity.RequirementAlert{}
+	}
+	alertsResp := h.buildAlertsResponse(alerts)
+
+	// 6. Return unified state
+	response.Success(w, ExerciseStateResponse{
+		Techniques:            techniques,
+		TechniqueDetections:   techniqueDetections,
+		TechniqueRequirements: techniqueRequirements,
+		DetectionStats:        detectionStatsResp,
+		Requirements:          requirementResponses,
+		RequirementAlerts:     alertsResp,
+	})
+}
+
+func (h *ExerciseHandler) reqToResponse(ctx context.Context, req *entity.ExerciseRequirement) RequirementResponse {
+	if req.CreatedBy != nil && req.CreatedByUsername == "" {
+		user, _ := h.userRepo.GetByID(ctx, *req.CreatedBy)
+		if user != nil {
+			req.CreatedByUsername = user.Username
+		}
+	}
+	if req.FulfilledBy != nil && req.FulfilledByUsername == "" {
+		user, _ := h.userRepo.GetByID(ctx, *req.FulfilledBy)
+		if user != nil {
+			req.FulfilledByUsername = user.Username
+		}
+	}
+
+	resp := RequirementResponse{
+		ID:                  req.ID.String(),
+		ExerciseID:          req.ExerciseID.String(),
+		Title:               req.Title,
+		Description:         req.Description,
+		Category:            string(req.Category),
+		Fulfilled:           req.Fulfilled,
+		CreatedAt:           req.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		LinkedScenarios:     req.LinkedScenarios,
+		CreatedByUsername:   req.CreatedByUsername,
+		FulfilledByUsername: req.FulfilledByUsername,
+	}
+	if req.CreatedBy != nil {
+		s := req.CreatedBy.String()
+		resp.CreatedBy = &s
+	}
+	if req.FulfilledBy != nil {
+		s := req.FulfilledBy.String()
+		resp.FulfilledBy = &s
+	}
+	if req.FulfilledAt != nil {
+		s := req.FulfilledAt.Format("2006-01-02T15:04:05Z")
+		resp.FulfilledAt = &s
+	}
+	return resp
+}
+
+func (h *ExerciseHandler) buildAlertsResponse(alerts []entity.RequirementAlert) RequirementAlertsResponse {
+	scenarioMap := make(map[uuid.UUID]*AlertScenarioResponse)
+	var scenarioOrder []uuid.UUID
+
+	for _, alert := range alerts {
+		etID := alert.ExerciseTechniqueID
+		if _, exists := scenarioMap[etID]; !exists {
+			scenarioMap[etID] = &AlertScenarioResponse{
+				ExerciseTechniqueID: etID.String(),
+				TechniqueName:       alert.TechniqueName,
+				MitreID:             alert.MitreID,
+				ScheduledStartTime:  alert.ScheduledStartTime.Format("2006-01-02T15:04:05Z"),
+				PendingRequirements: []AlertRequirementResponse{},
+			}
+			scenarioOrder = append(scenarioOrder, etID)
+		}
+		scenarioMap[etID].PendingRequirements = append(scenarioMap[etID].PendingRequirements, AlertRequirementResponse{
+			ID:       alert.RequirementID.String(),
+			Title:    alert.RequirementTitle,
+			Category: alert.RequirementCategory,
+		})
+	}
+
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	result := RequirementAlertsResponse{
+		Critical: []AlertScenarioResponse{},
+		High:     []AlertScenarioResponse{},
+		Warning:  []AlertScenarioResponse{},
+		Upcoming: []AlertScenarioResponse{},
+	}
+
+	for _, etID := range scenarioOrder {
+		scenario := scenarioMap[etID]
+		var scheduledTime time.Time
+		for _, alert := range alerts {
+			if alert.ExerciseTechniqueID == etID {
+				scheduledTime = alert.ScheduledStartTime
+				break
+			}
+		}
+
+		scheduledDate := time.Date(scheduledTime.Year(), scheduledTime.Month(), scheduledTime.Day(), 0, 0, 0, 0, scheduledTime.Location())
+		daysUntil := int(math.Round(scheduledDate.Sub(today).Hours() / 24))
+
+		switch {
+		case daysUntil <= 0:
+			result.Critical = append(result.Critical, *scenario)
+		case daysUntil == 1:
+			result.High = append(result.High, *scenario)
+		case daysUntil == 2:
+			result.Warning = append(result.Warning, *scenario)
+		default:
+			result.Upcoming = append(result.Upcoming, *scenario)
+		}
+	}
+
+	return result
 }

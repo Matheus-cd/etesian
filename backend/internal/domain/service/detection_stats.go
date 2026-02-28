@@ -20,6 +20,7 @@ type DetectionStats struct {
 	ToolDetected      int `json:"tool_detected"`
 	ToolNotDetected   int `json:"tool_not_detected"`
 	ToolNotApplicable int `json:"tool_not_applicable"`
+	ToolBlocked       int `json:"tool_blocked"`
 
 	// SIEM detection stats (count per technique)
 	SIEMDetected      int `json:"siem_detected"`
@@ -28,6 +29,7 @@ type DetectionStats struct {
 
 	// Final status (combined, count per technique)
 	FinalDetected      int `json:"final_detected"`      // SIEM detected
+	FinalBlocked       int `json:"final_blocked"`       // Tool blocked the attack
 	FinalPartial       int `json:"final_partial"`       // Only tool detected
 	FinalNotDetected   int `json:"final_not_detected"`  // Neither detected (has detection but none detected)
 	FinalNotApplicable int `json:"final_not_applicable"` // Both N/A
@@ -44,6 +46,7 @@ type TacticStats struct {
 	Tactic        string  `json:"tactic"`
 	Total         int     `json:"total"`
 	Detected      int     `json:"detected"`
+	Blocked       int     `json:"blocked"`
 	Partial       int     `json:"partial"`
 	NotDetected   int     `json:"not_detected"`
 	NotApplicable int     `json:"not_applicable"`
@@ -188,6 +191,9 @@ func (s *DetectionStatsService) CalculateStats(results []*TechniqueDetectionResu
 			stats.ToolNotApplicable++
 		} else if det.ToolDetected {
 			stats.ToolDetected++
+			if det.ToolBlocked {
+				stats.ToolBlocked++
+			}
 		} else {
 			stats.ToolNotDetected++
 		}
@@ -202,8 +208,11 @@ func (s *DetectionStatsService) CalculateStats(results []*TechniqueDetectionResu
 		}
 
 		// Final status calculation (same logic as frontend ExerciseDetailPage.tsx)
+		// Priority: not_applicable > blocked > detected > partial > not_detected
 		if det.ToolNotApplicable && det.SIEMNotApplicable {
 			stats.FinalNotApplicable++
+		} else if det.ToolBlocked {
+			stats.FinalBlocked++
 		} else if det.SIEMDetected && !det.SIEMNotApplicable {
 			stats.FinalDetected++
 		} else if det.ToolDetected && !det.ToolNotApplicable {
@@ -255,8 +264,11 @@ func (s *DetectionStatsService) CalculateTacticStats(results []*TechniqueDetecti
 		det := result.LatestDetection
 
 		// Final status calculation for tactic
+		// Priority: not_applicable > blocked > detected > partial > not_detected
 		if det.ToolNotApplicable && det.SIEMNotApplicable {
 			stat.NotApplicable++
+		} else if det.ToolBlocked {
+			stat.Blocked++
 		} else if det.SIEMDetected && !det.SIEMNotApplicable {
 			stat.Detected++
 		} else if det.ToolDetected && !det.ToolNotApplicable {

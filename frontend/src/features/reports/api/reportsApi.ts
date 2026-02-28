@@ -58,6 +58,7 @@ export interface DetectionDetail {
   tool_detected_at: string | null
   tool_alert_id: string | null
   tool_not_applicable: boolean
+  tool_blocked: boolean
 
   siem_detected: boolean
   siem_name: string | null
@@ -97,6 +98,7 @@ export interface DetectionSummary {
   tool_detected: number
   tool_not_detected: number
   tool_not_applicable: number
+  tool_blocked: number
   tool_rate: number
 
   siem_detected: number
@@ -105,6 +107,7 @@ export interface DetectionSummary {
   siem_rate: number
 
   final_detected: number
+  final_blocked: number
   final_partial: number
   final_not_detected: number
   final_not_applicable: number
@@ -115,6 +118,7 @@ export interface TacticCoverageData {
   tactic: string
   total: number
   detected: number
+  blocked: number
   partial: number
   not_detected: number
   not_applicable: number

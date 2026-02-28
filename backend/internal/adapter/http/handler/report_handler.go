@@ -72,6 +72,7 @@ type DetectionDetail struct {
 	ToolDetectedAt    *string `json:"tool_detected_at"`
 	ToolAlertID       *string `json:"tool_alert_id"`
 	ToolNotApplicable bool    `json:"tool_not_applicable"`
+	ToolBlocked       bool    `json:"tool_blocked"`
 
 	SIEMDetected      bool    `json:"siem_detected"`
 	SIEMName          *string `json:"siem_name"`
@@ -111,6 +112,7 @@ type DetectionSummary struct {
 	ToolDetected      int     `json:"tool_detected"`
 	ToolNotDetected   int     `json:"tool_not_detected"`
 	ToolNotApplicable int     `json:"tool_not_applicable"`
+	ToolBlocked       int     `json:"tool_blocked"`
 	ToolRate          float64 `json:"tool_rate"`
 
 	SIEMDetected      int     `json:"siem_detected"`
@@ -119,6 +121,7 @@ type DetectionSummary struct {
 	SIEMRate          float64 `json:"siem_rate"`
 
 	FinalDetected      int     `json:"final_detected"`
+	FinalBlocked       int     `json:"final_blocked"`
 	FinalPartial       int     `json:"final_partial"`
 	FinalNotDetected   int     `json:"final_not_detected"`
 	FinalNotApplicable int     `json:"final_not_applicable"`
@@ -129,6 +132,7 @@ type TacticCoverageData struct {
 	Tactic        string  `json:"tactic"`
 	Total         int     `json:"total"`
 	Detected      int     `json:"detected"`
+	Blocked       int     `json:"blocked"`
 	Partial       int     `json:"partial"`
 	NotDetected   int     `json:"not_detected"`
 	NotApplicable int     `json:"not_applicable"`
@@ -527,6 +531,7 @@ func (h *ReportHandler) GetExerciseReport(w http.ResponseWriter, r *http.Request
 						ToolDetected:      det.ToolDetected,
 						ToolName:          det.ToolName,
 						ToolNotApplicable: det.ToolNotApplicable,
+						ToolBlocked:       det.ToolBlocked,
 						SIEMDetected:      det.SIEMDetected,
 						SIEMName:          det.SIEMName,
 						SIEMNotApplicable: det.SIEMNotApplicable,
@@ -596,6 +601,8 @@ func (h *ReportHandler) GetExerciseReport(w http.ResponseWriter, r *http.Request
 			det := detResult.LatestDetection
 			if det.ToolNotApplicable && det.SIEMNotApplicable {
 				// Not applicable - no recommendation needed
+			} else if det.ToolBlocked {
+				// Blocked - positive outcome, no recommendation needed
 			} else if det.SIEMDetected && !det.SIEMNotApplicable {
 				// Fully detected - no recommendation needed
 			} else if det.ToolDetected && !det.ToolNotApplicable {
@@ -631,12 +638,14 @@ func (h *ReportHandler) GetExerciseReport(w http.ResponseWriter, r *http.Request
 		ToolDetected:       serviceStats.ToolDetected,
 		ToolNotDetected:    serviceStats.ToolNotDetected,
 		ToolNotApplicable:  serviceStats.ToolNotApplicable,
+		ToolBlocked:        serviceStats.ToolBlocked,
 		ToolRate:           serviceStats.ToolRate,
 		SIEMDetected:       serviceStats.SIEMDetected,
 		SIEMNotDetected:    serviceStats.SIEMNotDetected,
 		SIEMNotApplicable:  serviceStats.SIEMNotApplicable,
 		SIEMRate:           serviceStats.SIEMRate,
 		FinalDetected:      serviceStats.FinalDetected,
+		FinalBlocked:       serviceStats.FinalBlocked,
 		FinalPartial:       serviceStats.FinalPartial,
 		FinalNotDetected:   serviceStats.FinalNotDetected + serviceStats.FinalPending, // Merge pending into not detected for backwards compatibility
 		FinalNotApplicable: serviceStats.FinalNotApplicable,
@@ -651,6 +660,7 @@ func (h *ReportHandler) GetExerciseReport(w http.ResponseWriter, r *http.Request
 		}
 		tacticMap[tacticName].Total = stat.Total
 		tacticMap[tacticName].Detected = stat.Detected
+		tacticMap[tacticName].Blocked = stat.Blocked
 		tacticMap[tacticName].Partial = stat.Partial
 		tacticMap[tacticName].NotDetected = stat.NotDetected + stat.Pending // Merge pending into not detected
 		tacticMap[tacticName].NotApplicable = stat.NotApplicable

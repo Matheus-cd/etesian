@@ -103,11 +103,11 @@ func (r *detectionRepository) Create(ctx context.Context, detection *entity.Dete
 	query := `
 		INSERT INTO detections (id, execution_id, detected_by,
 			tool_detected, tool_name, tool_detected_at, tool_alert_id, tool_notes,
-			tool_not_applicable, tool_na_reason,
+			tool_not_applicable, tool_na_reason, tool_blocked,
 			siem_detected, siem_name, siem_detected_at, siem_alert_id, siem_notes,
 			siem_not_applicable, siem_na_reason,
 			detection_status, analyst_notes, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`
 
 	detection.ID = uuid.New()
 	detection.CreatedAt = time.Now()
@@ -115,7 +115,7 @@ func (r *detectionRepository) Create(ctx context.Context, detection *entity.Dete
 	_, err := r.db.ExecContext(ctx, query,
 		detection.ID, detection.ExecutionID, detection.DetectedBy,
 		detection.ToolDetected, detection.ToolName, detection.ToolDetectedAt, detection.ToolAlertID, detection.ToolNotes,
-		detection.ToolNotApplicable, detection.ToolNAReason,
+		detection.ToolNotApplicable, detection.ToolNAReason, detection.ToolBlocked,
 		detection.SIEMDetected, detection.SIEMName, detection.SIEMDetectedAt, detection.SIEMAlertID, detection.SIEMNotes,
 		detection.SIEMNotApplicable, detection.SIEMNAReason,
 		detection.DetectionStatus, detection.AnalystNotes, detection.CreatedAt)
@@ -146,16 +146,16 @@ func (r *detectionRepository) Update(ctx context.Context, detection *entity.Dete
 	query := `
 		UPDATE detections SET
 			tool_detected = $2, tool_name = $3, tool_detected_at = $4, tool_alert_id = $5, tool_notes = $6,
-			tool_not_applicable = $7, tool_na_reason = $8,
-			siem_detected = $9, siem_name = $10, siem_detected_at = $11, siem_alert_id = $12, siem_notes = $13,
-			siem_not_applicable = $14, siem_na_reason = $15,
-			detection_status = $16, analyst_notes = $17
+			tool_not_applicable = $7, tool_na_reason = $8, tool_blocked = $9,
+			siem_detected = $10, siem_name = $11, siem_detected_at = $12, siem_alert_id = $13, siem_notes = $14,
+			siem_not_applicable = $15, siem_na_reason = $16,
+			detection_status = $17, analyst_notes = $18
 		WHERE id = $1`
 
 	_, err := r.db.ExecContext(ctx, query,
 		detection.ID,
 		detection.ToolDetected, detection.ToolName, detection.ToolDetectedAt, detection.ToolAlertID, detection.ToolNotes,
-		detection.ToolNotApplicable, detection.ToolNAReason,
+		detection.ToolNotApplicable, detection.ToolNAReason, detection.ToolBlocked,
 		detection.SIEMDetected, detection.SIEMName, detection.SIEMDetectedAt, detection.SIEMAlertID, detection.SIEMNotes,
 		detection.SIEMNotApplicable, detection.SIEMNAReason,
 		detection.DetectionStatus, detection.AnalystNotes)

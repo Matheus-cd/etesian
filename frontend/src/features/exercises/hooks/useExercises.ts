@@ -9,6 +9,8 @@ import type {
   UpdateExerciseTechniqueRequest,
   CreateExecutionRequest,
   CreateDetectionRequest,
+  CreateRequirementRequest,
+  UpdateRequirementRequest,
 } from '../api/exercisesApi'
 
 export const exerciseKeys = {
@@ -23,6 +25,11 @@ export const exerciseKeys = {
     [...exerciseKeys.all, 'technique', exerciseId, techniqueId] as const,
   techniqueExecutions: (exerciseId: string, techniqueId: string) =>
     [...exerciseKeys.all, 'technique-executions', exerciseId, techniqueId] as const,
+  state: (id: string) => [...exerciseKeys.all, 'state', id] as const,
+  requirements: (exerciseId: string) => [...exerciseKeys.all, 'requirements', exerciseId] as const,
+  requirementAlerts: (exerciseId: string) => [...exerciseKeys.all, 'requirement-alerts', exerciseId] as const,
+  scenarioRequirements: (exerciseId: string, techniqueId: string) =>
+    [...exerciseKeys.all, 'scenario-requirements', exerciseId, techniqueId] as const,
 }
 
 // Exercises
@@ -155,6 +162,16 @@ export function useExerciseTechniques(exerciseId: string, options?: { refetchInt
   })
 }
 
+// Unified exercise state (replaces multiple polling queries)
+export function useExerciseState(exerciseId: string, options?: { refetchInterval?: number | false }) {
+  return useQuery({
+    queryKey: exerciseKeys.state(exerciseId),
+    queryFn: () => exercisesApi.getExerciseState(exerciseId),
+    enabled: !!exerciseId,
+    refetchInterval: options?.refetchInterval,
+  })
+}
+
 export function useAddTechnique() {
   const queryClient = useQueryClient()
 
@@ -163,6 +180,7 @@ export function useAddTechnique() {
       exercisesApi.addTechnique(exerciseId, data),
     onSuccess: (_, { exerciseId }) => {
       queryClient.invalidateQueries({ queryKey: exerciseKeys.techniques(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
     },
   })
 }
@@ -182,6 +200,7 @@ export function useUpdateExerciseTechnique() {
     }) => exercisesApi.updateExerciseTechnique(exerciseId, techniqueId, data),
     onSuccess: (_, { exerciseId }) => {
       queryClient.invalidateQueries({ queryKey: exerciseKeys.techniques(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
     },
   })
 }
@@ -205,6 +224,7 @@ export function useScheduleTechnique() {
     onSuccess: (result, { exerciseId }) => {
       console.log('[useScheduleTechnique] Success! Result:', result)
       queryClient.invalidateQueries({ queryKey: exerciseKeys.techniques(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
     },
     onError: (error, variables) => {
       console.error('[useScheduleTechnique] Error:', error)
@@ -221,6 +241,7 @@ export function useRemoveTechnique() {
       exercisesApi.removeTechnique(exerciseId, techniqueId),
     onSuccess: (_, { exerciseId }) => {
       queryClient.invalidateQueries({ queryKey: exerciseKeys.techniques(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
     },
   })
 }
@@ -238,6 +259,7 @@ export function useReorderTechniques() {
     }) => exercisesApi.reorderTechniques(exerciseId, techniqueIds),
     onSuccess: (_, { exerciseId }) => {
       queryClient.invalidateQueries({ queryKey: exerciseKeys.techniques(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
     },
   })
 }
@@ -258,9 +280,9 @@ export function useStartTechnique() {
     mutationFn: ({ exerciseId, techniqueId }: { exerciseId: string; techniqueId: string }) =>
       exercisesApi.startTechnique(exerciseId, techniqueId),
     onSuccess: (data, { exerciseId, techniqueId }) => {
-      // Update cache directly with returned data for immediate UI update
       queryClient.setQueryData(exerciseKeys.technique(exerciseId, techniqueId), data)
       queryClient.invalidateQueries({ queryKey: exerciseKeys.techniques(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
     },
   })
 }
@@ -274,6 +296,7 @@ export function usePauseTechnique() {
     onSuccess: (data, { exerciseId, techniqueId }) => {
       queryClient.setQueryData(exerciseKeys.technique(exerciseId, techniqueId), data)
       queryClient.invalidateQueries({ queryKey: exerciseKeys.techniques(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
     },
   })
 }
@@ -287,6 +310,7 @@ export function useResumeTechnique() {
     onSuccess: (data, { exerciseId, techniqueId }) => {
       queryClient.setQueryData(exerciseKeys.technique(exerciseId, techniqueId), data)
       queryClient.invalidateQueries({ queryKey: exerciseKeys.techniques(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
     },
   })
 }
@@ -300,6 +324,7 @@ export function useCompleteTechnique() {
     onSuccess: (data, { exerciseId, techniqueId }) => {
       queryClient.setQueryData(exerciseKeys.technique(exerciseId, techniqueId), data)
       queryClient.invalidateQueries({ queryKey: exerciseKeys.techniques(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
     },
   })
 }
@@ -313,6 +338,7 @@ export function useReopenTechnique() {
     onSuccess: (data, { exerciseId, techniqueId }) => {
       queryClient.setQueryData(exerciseKeys.technique(exerciseId, techniqueId), data)
       queryClient.invalidateQueries({ queryKey: exerciseKeys.techniques(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
     },
   })
 }
@@ -503,6 +529,103 @@ export function useVoidDetection() {
       exercisesApi.voidDetection(detectionId, voidReason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: exerciseKeys.all })
+    },
+  })
+}
+
+// Requirements
+export function useExerciseRequirements(exerciseId: string) {
+  return useQuery({
+    queryKey: exerciseKeys.requirements(exerciseId),
+    queryFn: () => exercisesApi.getRequirements(exerciseId),
+    enabled: !!exerciseId,
+  })
+}
+
+export function useRequirementAlerts(exerciseId: string) {
+  return useQuery({
+    queryKey: exerciseKeys.requirementAlerts(exerciseId),
+    queryFn: () => exercisesApi.getRequirementAlerts(exerciseId),
+    enabled: !!exerciseId,
+    refetchInterval: 30000,
+  })
+}
+
+export function useScenarioRequirements(exerciseId: string, techniqueId: string) {
+  return useQuery({
+    queryKey: exerciseKeys.scenarioRequirements(exerciseId, techniqueId),
+    queryFn: () => exercisesApi.getScenarioRequirements(exerciseId, techniqueId),
+    enabled: !!exerciseId && !!techniqueId,
+  })
+}
+
+export function useCreateRequirement() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ exerciseId, data }: { exerciseId: string; data: CreateRequirementRequest }) =>
+      exercisesApi.createRequirement(exerciseId, data),
+    onSuccess: (_, { exerciseId }) => {
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.requirements(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.requirementAlerts(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
+    },
+  })
+}
+
+export function useUpdateRequirement() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ exerciseId, requirementId, data }: { exerciseId: string; requirementId: string; data: UpdateRequirementRequest }) =>
+      exercisesApi.updateRequirement(exerciseId, requirementId, data),
+    onSuccess: (_, { exerciseId }) => {
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.requirements(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.requirementAlerts(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
+    },
+  })
+}
+
+export function useDeleteRequirement() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ exerciseId, requirementId }: { exerciseId: string; requirementId: string }) =>
+      exercisesApi.deleteRequirement(exerciseId, requirementId),
+    onSuccess: (_, { exerciseId }) => {
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.requirements(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.requirementAlerts(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
+    },
+  })
+}
+
+export function useFulfillRequirement() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ exerciseId, requirementId, fulfilled }: { exerciseId: string; requirementId: string; fulfilled: boolean }) =>
+      exercisesApi.fulfillRequirement(exerciseId, requirementId, fulfilled),
+    onSuccess: (_, { exerciseId }) => {
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.requirements(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.requirementAlerts(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
+    },
+  })
+}
+
+export function useSetScenarioRequirements() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ exerciseId, techniqueId, requirementIds }: { exerciseId: string; techniqueId: string; requirementIds: string[] }) =>
+      exercisesApi.setScenarioRequirements(exerciseId, techniqueId, requirementIds),
+    onSuccess: (_, { exerciseId, techniqueId }) => {
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.scenarioRequirements(exerciseId, techniqueId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.requirements(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.requirementAlerts(exerciseId) })
+      queryClient.invalidateQueries({ queryKey: exerciseKeys.state(exerciseId) })
     },
   })
 }

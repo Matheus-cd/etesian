@@ -269,6 +269,7 @@
     "status": {
       "pending": "Pending",
       "detected": "Detected",
+      "blocked": "Blocked",
       "partial": "Partial",
       "not_detected": "Not Detected",
       "not_applicable": "N/A",
@@ -280,6 +281,7 @@
     "toolSection": "Tool Detection",
     "siemSection": "SIEM Detection",
     "detectedByTool": "Detected",
+    "toolBlocked": "Blocked",
     "detectedBySiem": "Detected",
     "notApplicable": "Not Applicable",
     "naReason": "Reason for N/A",
@@ -731,6 +733,61 @@
     "unscheduleConfirmTitle": "Remove from Calendar",
     "unscheduleConfirmMessage": "Are you sure you want to remove \"{{name}}\" from the calendar? It will be moved back to the unscheduled list.",
     "unscheduleConfirmButton": "Remove"
+  },
+  "requirement": {
+    "title": "Requirements",
+    "add": "Add Requirement",
+    "edit": "Edit Requirement",
+    "delete": "Delete Requirement",
+    "noRequirements": "No requirements registered yet",
+    "noRequirementsHint": "Add requirements that need to be fulfilled before scenarios can be executed",
+    "export": "Export CSV",
+    "fields": {
+      "title": "Title",
+      "titlePlaceholder": "e.g., Disable tamper protection",
+      "description": "Description",
+      "descriptionPlaceholder": "Details about the requirement...",
+      "category": "Category",
+      "selectCategory": "Select category"
+    },
+    "categories": {
+      "acesso": "Access",
+      "credencial": "Credential",
+      "configuracao": "Configuration",
+      "software": "Software",
+      "rede": "Network",
+      "outro": "Other"
+    },
+    "status": {
+      "fulfilled": "Fulfilled",
+      "pending": "Pending",
+      "fulfilledBy": "Fulfilled by {{user}}",
+      "fulfilledAt": "Fulfilled at {{date}}"
+    },
+    "actions": {
+      "fulfill": "Mark as Fulfilled",
+      "unfulfill": "Mark as Pending"
+    },
+    "linkedScenarios": "{{count}} linked scenario",
+    "linkedScenarios_plural": "{{count}} linked scenarios",
+    "selectRequirements": "Select requirements",
+    "selectedRequirements": "Selected Requirements",
+    "noRequirementsForExercise": "No requirements for this exercise",
+    "scenarioRequirements": "Requirements",
+    "alerts": {
+      "title": "Requirement Alerts",
+      "critical": "Today",
+      "high": "Tomorrow",
+      "warning": "In 2 days",
+      "upcoming": "In 3 days",
+      "pendingRequirements": "{{count}} pending requirement",
+      "pendingRequirements_plural": "{{count}} pending requirements",
+      "scheduledFor": "Scheduled for {{date}}"
+    },
+    "confirm": {
+      "delete": "Are you sure you want to delete this requirement? It will be unlinked from all scenarios.",
+      "fulfill": "Mark this requirement as fulfilled?"
+    }
   },
   "errors": {
     "403": {

@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Ban,
   MinusCircle,
+  ShieldCheck,
 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -49,6 +50,8 @@ import {
   useDeleteDetectionEvidence,
   useUpdateDetectionEvidenceCaption,
   useVoidDetection,
+  useScenarioRequirements,
+  useFulfillRequirement,
 } from '../hooks/useExercises'
 import { exercisesApi } from '../api/exercisesApi'
 import type { ExerciseTechnique, Execution, Evidence, TechniqueStatus, Detection, DetectionStatus } from '../api/exercisesApi'
@@ -91,6 +94,7 @@ const statusConfig: Record<TechniqueStatus, { labelKey: string; color: string; i
 const detectionStatusConfig: Record<DetectionStatus, { labelKey: string; color: string; icon: React.ComponentType<{ className?: string }> }> = {
   pending: { labelKey: 'detection.status.pending', color: 'bg-gray-100 text-gray-700', icon: Clock },
   detected: { labelKey: 'detection.status.detected', color: 'bg-green-100 text-green-700', icon: Eye },
+  blocked: { labelKey: 'detection.status.blocked', color: 'bg-blue-100 text-blue-700', icon: ShieldCheck },
   partial: { labelKey: 'detection.status.partial', color: 'bg-yellow-100 text-yellow-700', icon: AlertTriangle },
   not_detected: { labelKey: 'detection.status.not_detected', color: 'bg-red-100 text-red-700', icon: EyeOff },
   not_applicable: { labelKey: 'detection.status.not_applicable', color: 'bg-gray-200 text-gray-600', icon: MinusCircle },
@@ -98,20 +102,18 @@ const detectionStatusConfig: Record<DetectionStatus, { labelKey: string; color: 
 }
 
 // Calculate detection status based on detection priority
-// Logic:
-// - Both N/A → not_applicable
-// - SIEM detected → detected (regardless of tool)
-// - Only tool detected → partial
-// - Neither detected → not_detected
+// Priority: voided > not_applicable > blocked > detected > partial > not_detected
 function calculateDetectionStatus(detection: Detection): DetectionStatus {
-  // Keep voided status as-is
   if (detection.detection_status === 'voided') {
     return 'voided'
   }
 
-  // Check for N/A status
   if (detection.tool_not_applicable && detection.siem_not_applicable) {
     return 'not_applicable'
+  }
+
+  if (detection.tool_blocked) {
+    return 'blocked'
   }
 
   if (detection.siem_detected) {
@@ -277,6 +279,7 @@ export function TechniqueExecutionModal({
     toolNotes: '',
     toolNotApplicable: false,
     toolNAReason: '',
+    toolBlocked: false,
     siemDetected: false,
     siemName: '',
     siemDetectedAt: '',
@@ -343,6 +346,13 @@ export function TechniqueExecutionModal({
     exerciseId,
     technique?.id || ''
   )
+
+  // Fetch scenario requirements for this technique
+  const { data: scenarioRequirements = [] } = useScenarioRequirements(
+    exerciseId,
+    technique?.id || ''
+  )
+  const fulfillRequirement = useFulfillRequirement()
 
   // Set default executed_at when opening form
   useEffect(() => {
@@ -1008,14 +1018,12 @@ export function TechniqueExecutionModal({
     // This is now more flexible - we don't require both to be answered
 
     // Determine detection status
-    // Priority:
-    // - Both N/A → not_applicable
-    // - SIEM detected → detected (regardless of tool)
-    // - Only tool detected → partial
-    // - Neither detected → not_detected
+    // Priority: not_applicable > blocked > detected > partial > not_detected
     let detectionStatus: DetectionStatus = 'not_detected'
     if (detectionForm.toolNotApplicable && detectionForm.siemNotApplicable) {
       detectionStatus = 'not_applicable'
+    } else if (detectionForm.toolBlocked) {
+      detectionStatus = 'blocked'
     } else if (detectionForm.siemDetected) {
       detectionStatus = 'detected'
     } else if (detectionForm.toolDetected) {
@@ -1034,6 +1042,7 @@ export function TechniqueExecutionModal({
           tool_notes: detectionForm.toolNotes || undefined,
           tool_not_applicable: detectionForm.toolNotApplicable,
           tool_na_reason: detectionForm.toolNAReason || undefined,
+          tool_blocked: detectionForm.toolBlocked,
           siem_detected: detectionForm.siemDetected,
           siem_name: detectionForm.siemName || undefined,
           siem_detected_at: detectionForm.siemDetectedAt ? new Date(detectionForm.siemDetectedAt).toISOString() : undefined,
@@ -1235,6 +1244,41 @@ export function TechniqueExecutionModal({
             </div>
           )}
         </div>
+
+        {/* Scenario Requirements */}
+        {scenarioRequirements.length > 0 && (
+          <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+            <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('requirement.scenarioRequirements')}</h4>
+            <div className="flex flex-wrap gap-2">
+              {scenarioRequirements.map((req) => (
+                <div
+                  key={req.id}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs ${
+                    req.fulfilled
+                      ? 'bg-green-100 text-green-800 border border-green-200'
+                      : 'bg-yellow-100 text-yellow-800 border border-yellow-200'
+                  }`}
+                >
+                  {req.fulfilled ? (
+                    <CheckCircle className="h-3 w-3" />
+                  ) : (
+                    <Clock className="h-3 w-3" />
+                  )}
+                  <span>{req.title}</span>
+                  {!req.fulfilled && canRegisterDetection && (
+                    <button
+                      onClick={() => fulfillRequirement.mutate({ exerciseId, requirementId: req.id, fulfilled: true })}
+                      className="ml-1 text-green-600 hover:text-green-800 font-medium"
+                      title={t('requirement.actions.fulfill')}
+                    >
+                      <CheckCircle className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Executions Section */}
         <div>
@@ -1732,7 +1776,8 @@ export function TechniqueExecutionModal({
                         onChange={(e) => setDetectionForm(prev => ({
                           ...prev,
                           toolDetected: e.target.checked,
-                          toolNotApplicable: e.target.checked ? false : prev.toolNotApplicable
+                          toolNotApplicable: e.target.checked ? false : prev.toolNotApplicable,
+                          toolBlocked: e.target.checked ? prev.toolBlocked : false,
                         }))}
                         disabled={detectionForm.toolNotApplicable}
                         className="h-4 w-4 text-green-600 rounded border-gray-300 focus:ring-green-500 disabled:opacity-50"
@@ -1745,11 +1790,30 @@ export function TechniqueExecutionModal({
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
+                        checked={detectionForm.toolBlocked}
+                        onChange={(e) => setDetectionForm(prev => ({
+                          ...prev,
+                          toolBlocked: e.target.checked,
+                          toolDetected: e.target.checked ? true : prev.toolDetected,
+                          toolNotApplicable: e.target.checked ? false : prev.toolNotApplicable,
+                        }))}
+                        disabled={detectionForm.toolNotApplicable}
+                        className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 disabled:opacity-50"
+                      />
+                      <span className={`text-sm ${detectionForm.toolNotApplicable ? 'text-gray-400' : 'text-gray-700'}`}>
+                        {t('detection.toolBlocked')}
+                      </span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
                         checked={detectionForm.toolNotApplicable}
                         onChange={(e) => setDetectionForm(prev => ({
                           ...prev,
                           toolNotApplicable: e.target.checked,
-                          toolDetected: e.target.checked ? false : prev.toolDetected
+                          toolDetected: e.target.checked ? false : prev.toolDetected,
+                          toolBlocked: e.target.checked ? false : prev.toolBlocked,
                         }))}
                         className="h-4 w-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
                       />
@@ -2202,6 +2266,7 @@ function ExecutionCard({
     toolNotes: '',
     toolNotApplicable: false,
     toolNAReason: '',
+    toolBlocked: false,
     siemDetected: false,
     siemName: '',
     siemDetectedAt: '',
@@ -2308,6 +2373,7 @@ function ExecutionCard({
       toolNotes: latestDetection.tool_notes || '',
       toolNotApplicable: latestDetection.tool_not_applicable || false,
       toolNAReason: latestDetection.tool_na_reason || '',
+      toolBlocked: latestDetection.tool_blocked || false,
       siemDetected: latestDetection.siem_detected || false,
       siemName: latestDetection.siem_name || '',
       siemDetectedAt: latestDetection.siem_detected_at
@@ -2411,6 +2477,7 @@ function ExecutionCard({
           tool_notes: editForm.toolDetected ? editForm.toolNotes : undefined,
           tool_not_applicable: editForm.toolNotApplicable,
           tool_na_reason: editForm.toolNotApplicable ? editForm.toolNAReason : undefined,
+          tool_blocked: editForm.toolBlocked,
           siem_detected: editForm.siemDetected,
           siem_name: editForm.siemDetected ? editForm.siemName : undefined,
           siem_detected_at: editForm.siemDetected && editForm.siemDetectedAt
@@ -2904,7 +2971,8 @@ function ExecutionCard({
                       onChange={(e) => setEditForm(prev => ({
                         ...prev,
                         toolDetected: e.target.checked,
-                        toolNotApplicable: e.target.checked ? false : prev.toolNotApplicable
+                        toolNotApplicable: e.target.checked ? false : prev.toolNotApplicable,
+                        toolBlocked: e.target.checked ? prev.toolBlocked : false,
                       }))}
                       disabled={editForm.toolNotApplicable}
                       className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 disabled:opacity-50"
@@ -2917,11 +2985,30 @@ function ExecutionCard({
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
+                      checked={editForm.toolBlocked}
+                      onChange={(e) => setEditForm(prev => ({
+                        ...prev,
+                        toolBlocked: e.target.checked,
+                        toolDetected: e.target.checked ? true : prev.toolDetected,
+                        toolNotApplicable: e.target.checked ? false : prev.toolNotApplicable,
+                      }))}
+                      disabled={editForm.toolNotApplicable}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:opacity-50"
+                    />
+                    <span className={`text-sm ${editForm.toolNotApplicable ? 'text-gray-400' : 'text-gray-700'}`}>
+                      {t('detection.toolBlocked')}
+                    </span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
                       checked={editForm.toolNotApplicable}
                       onChange={(e) => setEditForm(prev => ({
                         ...prev,
                         toolNotApplicable: e.target.checked,
-                        toolDetected: e.target.checked ? false : prev.toolDetected
+                        toolDetected: e.target.checked ? false : prev.toolDetected,
+                        toolBlocked: e.target.checked ? false : prev.toolBlocked,
                       }))}
                       className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
                     />

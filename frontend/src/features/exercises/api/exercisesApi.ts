@@ -91,7 +91,7 @@ export interface Evidence {
   uploaded_at: string
 }
 
-export type DetectionStatus = 'pending' | 'detected' | 'partial' | 'not_detected' | 'not_applicable' | 'voided'
+export type DetectionStatus = 'pending' | 'detected' | 'blocked' | 'partial' | 'not_detected' | 'not_applicable' | 'voided'
 
 export interface Detection {
   id: string
@@ -106,6 +106,7 @@ export interface Detection {
   tool_notes: string | null
   tool_not_applicable: boolean
   tool_na_reason: string | null
+  tool_blocked: boolean
 
   // SIEM detection
   siem_detected: boolean
@@ -147,6 +148,7 @@ export interface CreateDetectionRequest {
   tool_notes?: string
   tool_not_applicable?: boolean
   tool_na_reason?: string
+  tool_blocked?: boolean
 
   siem_detected?: boolean
   siem_name?: string
@@ -208,6 +210,7 @@ export interface TacticStat {
   tactic: string
   total: number
   detected: number
+  blocked: number
   partial: number
   not_detected: number
   not_applicable: number
@@ -223,18 +226,87 @@ export interface DetectionStatsResponse {
   tool_detected: number
   tool_not_detected: number
   tool_not_applicable: number
+  tool_blocked: number
   tool_rate: number
   siem_detected: number
   siem_not_detected: number
   siem_not_applicable: number
   siem_rate: number
   final_detected: number
+  final_blocked: number
   final_partial: number
   final_not_detected: number
   final_not_applicable: number
   final_pending: number
   final_not_executed: number
   tactic_stats: TacticStat[]
+}
+
+// Requirements
+export type RequirementCategory = 'acesso' | 'credencial' | 'configuracao' | 'software' | 'rede' | 'outro'
+
+export interface ExerciseRequirement {
+  id: string
+  exercise_id: string
+  title: string
+  description: string | null
+  category: RequirementCategory
+  fulfilled: boolean
+  fulfilled_by: string | null
+  fulfilled_at: string | null
+  created_by: string | null
+  created_at: string
+  linked_scenarios: number
+  created_by_username?: string
+  fulfilled_by_username?: string
+}
+
+export interface CreateRequirementRequest {
+  title: string
+  description?: string
+  category?: RequirementCategory
+}
+
+export interface UpdateRequirementRequest {
+  title: string
+  description?: string
+  category?: RequirementCategory
+}
+
+export interface AlertRequirement {
+  id: string
+  title: string
+  category: string
+}
+
+export interface AlertScenario {
+  exercise_technique_id: string
+  technique_name: string
+  mitre_id: string
+  scheduled_start_time: string
+  pending_requirements: AlertRequirement[]
+}
+
+export interface RequirementAlerts {
+  critical: AlertScenario[]
+  high: AlertScenario[]
+  warning: AlertScenario[]
+  upcoming: AlertScenario[]
+}
+
+// Unified exercise state (single polling endpoint)
+export interface TechniqueDetectionState {
+  has_execution: boolean
+  latest_detection?: Detection
+}
+
+export interface ExerciseState {
+  techniques: ExerciseTechnique[]
+  technique_detections: Record<string, TechniqueDetectionState>
+  technique_requirements: Record<string, ExerciseRequirement[]>
+  detection_stats: DetectionStatsResponse
+  requirements: ExerciseRequirement[]
+  requirement_alerts: RequirementAlerts
 }
 
 export const exercisesApi = {
@@ -477,6 +549,53 @@ export const exercisesApi = {
   // Detection Statistics
   getDetectionStats: async (exerciseId: string): Promise<DetectionStatsResponse> => {
     const response = await apiClient.get(`/exercises/${exerciseId}/detection-stats`)
+    return response.data
+  },
+
+  // Unified exercise state (single polling endpoint)
+  getExerciseState: async (exerciseId: string): Promise<ExerciseState> => {
+    const response = await apiClient.get(`/exercises/${exerciseId}/state`)
+    return response.data
+  },
+
+  // Requirements
+  getRequirements: async (exerciseId: string): Promise<ExerciseRequirement[]> => {
+    const response = await apiClient.get(`/exercises/${exerciseId}/requirements`)
+    return response.data
+  },
+
+  createRequirement: async (exerciseId: string, data: CreateRequirementRequest): Promise<ExerciseRequirement> => {
+    const response = await apiClient.post(`/exercises/${exerciseId}/requirements`, data)
+    return response.data
+  },
+
+  updateRequirement: async (exerciseId: string, requirementId: string, data: UpdateRequirementRequest): Promise<ExerciseRequirement> => {
+    const response = await apiClient.put(`/exercises/${exerciseId}/requirements/${requirementId}`, data)
+    return response.data
+  },
+
+  deleteRequirement: async (exerciseId: string, requirementId: string): Promise<void> => {
+    await apiClient.delete(`/exercises/${exerciseId}/requirements/${requirementId}`)
+  },
+
+  fulfillRequirement: async (exerciseId: string, requirementId: string, fulfilled: boolean): Promise<ExerciseRequirement> => {
+    const response = await apiClient.patch(`/exercises/${exerciseId}/requirements/${requirementId}/fulfill`, { fulfilled })
+    return response.data
+  },
+
+  getRequirementAlerts: async (exerciseId: string): Promise<RequirementAlerts> => {
+    const response = await apiClient.get(`/exercises/${exerciseId}/requirements/alerts`)
+    return response.data
+  },
+
+  // Scenario requirements
+  getScenarioRequirements: async (exerciseId: string, techniqueId: string): Promise<ExerciseRequirement[]> => {
+    const response = await apiClient.get(`/exercises/${exerciseId}/techniques/${techniqueId}/requirements`)
+    return response.data
+  },
+
+  setScenarioRequirements: async (exerciseId: string, techniqueId: string, requirementIds: string[]): Promise<ExerciseRequirement[]> => {
+    const response = await apiClient.put(`/exercises/${exerciseId}/techniques/${techniqueId}/requirements`, { requirement_ids: requirementIds })
     return response.data
   },
 }

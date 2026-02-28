@@ -61,6 +61,7 @@ type CreateDetectionRequest struct {
 	ToolNotes         string `json:"tool_notes"`
 	ToolNotApplicable bool   `json:"tool_not_applicable"`
 	ToolNAReason      string `json:"tool_na_reason"`
+	ToolBlocked       bool   `json:"tool_blocked"`
 
 	// SIEM detection
 	SIEMDetected      bool   `json:"siem_detected"`
@@ -89,6 +90,7 @@ type DetectionResponse struct {
 	ToolNotes         *string `json:"tool_notes"`
 	ToolNotApplicable bool    `json:"tool_not_applicable"`
 	ToolNAReason      *string `json:"tool_na_reason"`
+	ToolBlocked       bool    `json:"tool_blocked"`
 
 	// SIEM detection
 	SIEMDetected      bool    `json:"siem_detected"`
@@ -170,6 +172,11 @@ func (h *DetectionHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if req.ToolNAReason != "" {
 		detection.ToolNAReason = &req.ToolNAReason
 	}
+	detection.ToolBlocked = req.ToolBlocked
+	// Invariant: blocked implies detected
+	if detection.ToolBlocked {
+		detection.ToolDetected = true
+	}
 
 	// SIEM detection
 	if req.SIEMName != "" {
@@ -195,16 +202,14 @@ func (h *DetectionHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if req.DetectionStatus != "" {
 		detection.DetectionStatus = entity.DetectionStatus(req.DetectionStatus)
 	} else {
-		// Logic:
-		// - Both N/A → not_applicable
-		// - SIEM detected (and Tool detected or N/A) → detected
-		// - Only Tool detected (SIEM not detected or N/A) → partial
-		// - Neither detected → not_detected
-		if req.ToolNotApplicable && req.SIEMNotApplicable {
+		// Priority: voided > not_applicable > blocked > detected > partial > not_detected
+		if detection.ToolNotApplicable && detection.SIEMNotApplicable {
 			detection.DetectionStatus = entity.DetectionStatusNotApplicable
-		} else if req.SIEMDetected {
+		} else if detection.ToolBlocked {
+			detection.DetectionStatus = entity.DetectionStatusBlocked
+		} else if detection.SIEMDetected {
 			detection.DetectionStatus = entity.DetectionStatusDetected
-		} else if req.ToolDetected {
+		} else if detection.ToolDetected {
 			detection.DetectionStatus = entity.DetectionStatusPartial
 		} else {
 			detection.DetectionStatus = entity.DetectionStatusNotDetected
@@ -301,6 +306,11 @@ func (h *DetectionHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if req.ToolNAReason != "" {
 		detection.ToolNAReason = &req.ToolNAReason
 	}
+	detection.ToolBlocked = req.ToolBlocked
+	// Invariant: blocked implies detected
+	if detection.ToolBlocked {
+		detection.ToolDetected = true
+	}
 
 	// Update SIEM detection
 	detection.SIEMDetected = req.SIEMDetected
@@ -327,13 +337,11 @@ func (h *DetectionHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if req.DetectionStatus != "" {
 		detection.DetectionStatus = entity.DetectionStatus(req.DetectionStatus)
 	} else {
-		// Logic:
-		// - Both N/A → not_applicable
-		// - SIEM detected (and Tool detected or N/A) → detected
-		// - Only Tool detected (SIEM not detected or N/A) → partial
-		// - Neither detected → not_detected
+		// Priority: voided > not_applicable > blocked > detected > partial > not_detected
 		if detection.ToolNotApplicable && detection.SIEMNotApplicable {
 			detection.DetectionStatus = entity.DetectionStatusNotApplicable
+		} else if detection.ToolBlocked {
+			detection.DetectionStatus = entity.DetectionStatusBlocked
 		} else if detection.SIEMDetected {
 			detection.DetectionStatus = entity.DetectionStatusDetected
 		} else if detection.ToolDetected {
@@ -717,6 +725,7 @@ func (h *DetectionHandler) toDetectionResponse(
 		ToolNotes:         d.ToolNotes,
 		ToolNotApplicable: d.ToolNotApplicable,
 		ToolNAReason:      d.ToolNAReason,
+		ToolBlocked:       d.ToolBlocked,
 		SIEMDetected:      d.SIEMDetected,
 		SIEMName:          d.SIEMName,
 		SIEMAlertID:       d.SIEMAlertID,

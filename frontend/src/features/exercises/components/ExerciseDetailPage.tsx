@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -25,6 +25,9 @@ import {
   ChevronUp,
   List,
   CalendarDays,
+  ShieldCheck,
+  ClipboardList,
+  Check,
 } from 'lucide-react'
 import {
   DndContext,
@@ -48,10 +51,12 @@ import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DonutChart, type ChartSegment } from '@/components/ui/DonutChart'
+import { useQueryClient } from '@tanstack/react-query'
 import {
+  exerciseKeys,
   useExercise,
   useExerciseMembers,
-  useExerciseTechniques,
+  useExerciseState,
   useStartExercise,
   useCompleteExercise,
   useReopenExercise,
@@ -60,14 +65,18 @@ import {
   useUpdateExerciseTechnique,
   useReorderTechniques,
   useScheduleTechnique,
+  useExerciseRequirements,
+  useScenarioRequirements,
+  useSetScenarioRequirements,
 } from '../hooks/useExercises'
 import { ExerciseForm } from './ExerciseForm'
 import { AddMemberModal } from './AddMemberModal'
 import { AddTechniqueModal } from './AddTechniqueModal'
 import { TechniqueExecutionModal } from './TechniqueExecutionModal'
+import { RequirementAlertsPanel } from './RequirementAlertsPanel'
+import { RequirementsSection } from './RequirementsSection'
 import { CalendarView } from './CalendarView'
-import { exercisesApi } from '../api/exercisesApi'
-import type { ExerciseStatus, ExerciseTechnique, TechniqueStatus, DetectionStatus, Detection, DetectionStatsResponse, TacticStat } from '../api/exercisesApi'
+import type { ExerciseStatus, ExerciseTechnique, ExerciseRequirement, TechniqueStatus, DetectionStatus, Detection, TechniqueDetectionState } from '../api/exercisesApi'
 import { useAuthStore } from '@/features/auth/store/authStore'
 
 // Roles that can reorder techniques (Red Team and leads)
@@ -98,6 +107,7 @@ const techniqueStatusConfig: Record<
 const detectionStatusConfig: Record<DetectionStatus, { labelKey: string; color: string; icon: React.ComponentType<{ className?: string }> }> = {
   pending: { labelKey: 'detection.status.pending', color: 'bg-gray-100 text-gray-600', icon: Clock },
   detected: { labelKey: 'detection.status.detected', color: 'bg-green-100 text-green-700', icon: Eye },
+  blocked: { labelKey: 'detection.status.blocked', color: 'bg-blue-100 text-blue-700', icon: ShieldCheck },
   partial: { labelKey: 'detection.status.partial', color: 'bg-yellow-100 text-yellow-700', icon: AlertTriangle },
   not_detected: { labelKey: 'detection.status.not_detected', color: 'bg-red-100 text-red-700', icon: EyeOff },
   not_applicable: { labelKey: 'detection.status.not_applicable', color: 'bg-gray-200 text-gray-600', icon: EyeOff },
@@ -105,20 +115,18 @@ const detectionStatusConfig: Record<DetectionStatus, { labelKey: string; color: 
 }
 
 // Calculate detection status based on detection priority
-// SIEM detection is the ideal scenario:
-// - Both N/A → not_applicable
-// - SIEM detected → detected (regardless of tool)
-// - Only tool detected → partial
-// - Neither detected → not_detected
+// Priority: voided > not_applicable > blocked > detected > partial > not_detected
 function calculateDetectionStatus(detection: Detection): DetectionStatus {
-  // Keep voided status as-is
   if (detection.detection_status === 'voided') {
     return 'voided'
   }
 
-  // Both N/A → not_applicable
   if (detection.tool_not_applicable && detection.siem_not_applicable) {
     return 'not_applicable'
+  }
+
+  if (detection.tool_blocked) {
+    return 'blocked'
   }
 
   if (detection.siem_detected) {
@@ -147,6 +155,28 @@ function EditExerciseTechniqueForm({
   const { t } = useTranslation()
   const [notes, setNotes] = useState(technique.notes ?? '')
   const [error, setError] = useState<string | null>(null)
+  const [selectedRequirementIds, setSelectedRequirementIds] = useState<string[]>([])
+  const [requirementsLoaded, setRequirementsLoaded] = useState(false)
+
+  const { data: requirements = [] } = useExerciseRequirements(exerciseId)
+  const { data: currentReqs = [] } = useScenarioRequirements(exerciseId, technique.id)
+  const setScenarioRequirements = useSetScenarioRequirements()
+
+  // Initialize selected requirements from current scenario requirements
+  useEffect(() => {
+    if (currentReqs.length > 0 && !requirementsLoaded) {
+      setSelectedRequirementIds(currentReqs.map((r) => r.id))
+      setRequirementsLoaded(true)
+    } else if (currentReqs.length === 0 && !requirementsLoaded) {
+      setRequirementsLoaded(true)
+    }
+  }, [currentReqs, requirementsLoaded])
+
+  const toggleRequirement = (reqId: string) => {
+    setSelectedRequirementIds((prev) =>
+      prev.includes(reqId) ? prev.filter((id) => id !== reqId) : [...prev, reqId]
+    )
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -160,6 +190,18 @@ function EditExerciseTechniqueForm({
           notes: notes.trim() || undefined,
         },
       })
+
+      // Update scenario requirements
+      const currentIds = currentReqs.map((r) => r.id).sort().join(',')
+      const newIds = [...selectedRequirementIds].sort().join(',')
+      if (currentIds !== newIds) {
+        await setScenarioRequirements.mutateAsync({
+          exerciseId,
+          techniqueId: technique.id,
+          requirementIds: selectedRequirementIds,
+        })
+      }
+
       onSuccess()
     } catch (err: unknown) {
       if (err instanceof Error) {
@@ -203,12 +245,53 @@ function EditExerciseTechniqueForm({
         </p>
       </div>
 
+      {/* Requirements */}
+      {requirements.length > 0 && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            <ClipboardList className="inline h-3.5 w-3.5 mr-1" />
+            {t('requirement.scenarioRequirements')}
+          </label>
+          <div className="border border-gray-200 rounded-lg max-h-40 overflow-y-auto">
+            {requirements.map((req) => (
+              <button
+                key={req.id}
+                type="button"
+                onClick={() => toggleRequirement(req.id)}
+                className={`w-full text-left px-3 py-2 text-sm border-b border-gray-100 last:border-b-0 hover:bg-gray-50 flex items-center gap-2 ${
+                  selectedRequirementIds.includes(req.id) ? 'bg-indigo-50' : ''
+                }`}
+              >
+                <div className={`h-4 w-4 rounded border flex-shrink-0 flex items-center justify-center ${
+                  selectedRequirementIds.includes(req.id)
+                    ? 'bg-indigo-600 border-indigo-600'
+                    : 'border-gray-300'
+                }`}>
+                  {selectedRequirementIds.includes(req.id) && (
+                    <Check className="h-3 w-3 text-white" />
+                  )}
+                </div>
+                <span className="truncate">{req.title}</span>
+                <span className="text-xs text-gray-400 ml-auto flex-shrink-0">
+                  {t(`requirement.categories.${req.category}`)}
+                </span>
+              </button>
+            ))}
+          </div>
+          {selectedRequirementIds.length > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              {selectedRequirementIds.length} {t('requirement.selectedRequirements').toLowerCase()}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="flex justify-end gap-3 pt-4">
         <Button type="button" variant="secondary" onClick={onCancel}>
           {t('common.cancel')}
         </Button>
-        <Button type="submit" disabled={updateMutation.isPending}>
-          {updateMutation.isPending ? t('technique.saving') : t('technique.saveChanges')}
+        <Button type="submit" disabled={updateMutation.isPending || setScenarioRequirements.isPending}>
+          {updateMutation.isPending || setScenarioRequirements.isPending ? t('technique.saving') : t('technique.saveChanges')}
         </Button>
       </div>
     </form>
@@ -223,7 +306,8 @@ interface SortableTechniqueItemProps {
   onOpenExecution: (technique: ExerciseTechnique) => void
   exerciseActive: boolean
   exerciseId: string
-  refreshKey?: number
+  detectionState?: TechniqueDetectionState
+  scenarioRequirements?: ExerciseRequirement[]
   canReorder?: boolean
   t: (key: string) => string
 }
@@ -232,6 +316,7 @@ interface SortableTechniqueItemProps {
 const detectionBorderColors: Record<DetectionStatus, string> = {
   pending: 'border-l-gray-300',
   detected: 'border-l-green-500',
+  blocked: 'border-l-blue-500',
   partial: 'border-l-yellow-500',
   not_detected: 'border-l-red-500',
   not_applicable: 'border-l-gray-400',
@@ -242,6 +327,7 @@ const detectionBorderColors: Record<DetectionStatus, string> = {
 const detectionBgColors: Record<DetectionStatus, string> = {
   pending: 'bg-gray-100',
   detected: 'bg-green-100',
+  blocked: 'bg-blue-100',
   partial: 'bg-yellow-100',
   not_detected: 'bg-red-100',
   not_applicable: 'bg-gray-200',
@@ -251,6 +337,7 @@ const detectionBgColors: Record<DetectionStatus, string> = {
 const detectionTextColors: Record<DetectionStatus, string> = {
   pending: 'text-gray-500',
   detected: 'text-green-700',
+  blocked: 'text-blue-700',
   partial: 'text-yellow-700',
   not_detected: 'text-red-700',
   not_applicable: 'text-gray-600',
@@ -262,6 +349,7 @@ interface TacticStats {
   tactic: string
   total: number
   detected: number      // SIEM detected (full detection)
+  blocked: number       // Tool blocked the attack
   partial: number       // Only tool detected
   notDetected: number   // Neither detected
   notApplicable: number // Both N/A
@@ -294,14 +382,11 @@ function SortableTechniqueItem({
   onRemove,
   onOpenExecution,
   exerciseActive,
-  exerciseId,
-  refreshKey,
+  detectionState,
+  scenarioRequirements: scenarioReqs = [],
   canReorder = true,
   t,
 }: SortableTechniqueItemProps) {
-  const [detectionStatus, setDetectionStatus] = useState<Detection | null>(null)
-  const [loadingDetection, setLoadingDetection] = useState(false)
-  const [hasExecutions, setHasExecutions] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
 
   const {
@@ -322,67 +407,9 @@ function SortableTechniqueItem({
   const statusInfo = techniqueStatusConfig[status]
   const StatusIcon = statusInfo?.icon || Clock
 
-  // Track if this is the initial load (to show loading indicator only on first load)
-  const isInitialLoad = useRef(true)
-
-  // Load executions and detection status directly from API
-  useEffect(() => {
-    if (!exerciseActive) {
-      return
-    }
-
-    let isMounted = true
-
-    // Only show loading on initial load, not on polling updates
-    if (isInitialLoad.current) {
-      setLoadingDetection(true)
-    }
-
-    const loadExecutionsAndDetections = async () => {
-      try {
-        // Fetch executions for this technique
-        const executions = await exercisesApi.getTechniqueExecutions(exerciseId, technique.id)
-
-        if (!isMounted) return
-
-        if (Array.isArray(executions) && executions.length > 0) {
-          setHasExecutions(true)
-
-          // Get detections for the first execution
-          const executionId = executions[0].id
-          const detections = await exercisesApi.getDetectionsByExecution(executionId)
-
-          if (isMounted) {
-            if (Array.isArray(detections) && detections.length > 0) {
-              setDetectionStatus(detections[detections.length - 1])
-            } else {
-              setDetectionStatus(null)
-            }
-          }
-        } else {
-          setHasExecutions(false)
-          setDetectionStatus(null)
-        }
-      } catch (error) {
-        console.error('Error loading executions/detections:', error)
-        if (isMounted) {
-          setHasExecutions(false)
-          setDetectionStatus(null)
-        }
-      } finally {
-        if (isMounted) {
-          setLoadingDetection(false)
-          isInitialLoad.current = false
-        }
-      }
-    }
-
-    loadExecutionsAndDetections()
-
-    return () => {
-      isMounted = false
-    }
-  }, [technique.id, exerciseId, exerciseActive, refreshKey])
+  // Derive detection info from unified state
+  const hasExecutions = detectionState?.has_execution ?? false
+  const detectionStatus = detectionState?.latest_detection ?? null
 
   // Calculate the real detection status based on tool/siem detection values
   const calculatedStatus = detectionStatus ? calculateDetectionStatus(detectionStatus) : null
@@ -392,9 +419,6 @@ function SortableTechniqueItem({
   const getDetectionDisplay = () => {
     if (!exerciseActive) {
       return { icon: Clock, label: t('detection.inactive'), color: 'pending' as DetectionStatus }
-    }
-    if (loadingDetection) {
-      return { icon: Clock, label: t('detection.loading'), color: 'pending' as DetectionStatus }
     }
     if (!hasExecutions) {
       return { icon: Clock, label: t('detection.noExecution'), color: 'pending' as DetectionStatus }
@@ -442,26 +466,20 @@ function SortableTechniqueItem({
       <div
         className={`w-24 flex-shrink-0 flex flex-col items-center justify-center py-3 px-2 border-l-4 ${detectionBorderColors[displayInfo.color]} ${detectionBgColors[displayInfo.color]}`}
       >
-        {loadingDetection ? (
-          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-500" />
-        ) : (
-          <>
-            <DisplayIcon className={`h-6 w-6 ${detectionTextColors[displayInfo.color]}`} />
-            <span className={`text-xs font-medium mt-1.5 text-center leading-tight ${detectionTextColors[displayInfo.color]}`}>
-              {displayInfo.label}
-            </span>
-            {/* Tool/SIEM indicators */}
-            {detectionStatus && (detectionStatus.tool_detected || detectionStatus.siem_detected) && (
-              <div className="flex items-center gap-1.5 mt-1.5">
-                {detectionStatus.tool_detected && (
-                  <span className="w-2.5 h-2.5 rounded-full bg-green-500" title={t('detection.detectedByTool')} />
-                )}
-                {detectionStatus.siem_detected && (
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500" title={t('detection.detectedBySiem')} />
-                )}
-              </div>
+        <DisplayIcon className={`h-6 w-6 ${detectionTextColors[displayInfo.color]}`} />
+        <span className={`text-xs font-medium mt-1.5 text-center leading-tight ${detectionTextColors[displayInfo.color]}`}>
+          {displayInfo.label}
+        </span>
+        {/* Tool/SIEM indicators */}
+        {detectionStatus && (detectionStatus.tool_detected || detectionStatus.siem_detected) && (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            {detectionStatus.tool_detected && (
+              <span className="w-2.5 h-2.5 rounded-full bg-green-500" title={t('detection.detectedByTool')} />
             )}
-          </>
+            {detectionStatus.siem_detected && (
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500" title={t('detection.detectedBySiem')} />
+            )}
+          </div>
         )}
       </div>
 
@@ -506,6 +524,26 @@ function SortableTechniqueItem({
                 </Badge>
               )}
             </div>
+            {/* Linked requirements */}
+            {scenarioReqs.length > 0 && (
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                <ClipboardList className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                {scenarioReqs.map((req) => (
+                  <span
+                    key={req.id}
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                      req.fulfilled
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-amber-100 text-amber-700'
+                    }`}
+                    title={`${req.title}${req.fulfilled ? ` — ${t('requirement.status.fulfilled')}` : ` — ${t('requirement.status.pending')}`}`}
+                  >
+                    {req.fulfilled && <CheckCircle className="h-2.5 w-2.5" />}
+                    <span className="truncate max-w-[120px]">{req.title}</span>
+                  </span>
+                ))}
+              </div>
+            )}
             {technique.notes && (
               <p className="text-sm text-gray-600 mt-1 italic line-clamp-2" title={technique.notes}>
                 {technique.notes}
@@ -568,20 +606,22 @@ function TacticCard({ stat, t }: TacticCardProps) {
 
   // Calculate executed scenarios (excluding only not executed)
   // pending = has execution but no detection registered, so it counts as executed
-  const executedCount = stat.detected + stat.partial + stat.notDetected + stat.notApplicable + stat.pending
+  const executedCount = stat.detected + stat.blocked + stat.partial + stat.notDetected + stat.notApplicable + stat.pending
   const hasExecutions = executedCount > 0
 
   // SIEM Detection Rate - only SIEM detection counts as "real" detection
   // Applicable = all scenarios that should be detected (excluding N/A)
   // Pending scenarios (no detection registered) count as NOT detected
-  const applicableCount = stat.detected + stat.partial + stat.notDetected + stat.pending
+  // Blocked scenarios count as detected for rate purposes
+  const applicableCount = stat.detected + stat.blocked + stat.partial + stat.notDetected + stat.pending
 
-  // SIEM rate = scenarios with SIEM detection / total applicable
+  // SIEM rate = (SIEM detected + blocked) / total applicable
   // stat.detected = SIEM detected (full detection)
+  // stat.blocked = Tool blocked (counts as detected)
   // stat.partial = Tool only (no SIEM)
-  // stat.notDetected = neither detected (detection registered but not detected)
-  // stat.pending = no detection registered yet (counts as not detected)
-  const siemRate = applicableCount > 0 ? (stat.detected / applicableCount) * 100 : 0
+  // stat.notDetected = neither detected
+  // stat.pending = no detection registered yet
+  const siemRate = applicableCount > 0 ? ((stat.detected + stat.blocked) / applicableCount) * 100 : 0
 
   // Determine card color based on SIEM detection rate (heatmap style)
   // - Hatched gray: No scenarios in this tactic
@@ -711,6 +751,7 @@ export function ExerciseDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
 
   // Get current user to check permissions
   const { user } = useAuthStore()
@@ -718,13 +759,13 @@ export function ExerciseDetailPage() {
   const canReorder = REORDER_ROLES.includes(userRole)
   const canManageMembers = MEMBER_MANAGEMENT_ROLES.includes(userRole)
   const canManageTechniques = TECHNIQUE_MANAGEMENT_ROLES.includes(userRole)
+  const canFulfillRequirements = ['admin', 'purple_team_lead', 'blue_team_analyst'].includes(userRole)
 
   const [showEditModal, setShowEditModal] = useState(false)
   const [showAddMember, setShowAddMember] = useState(false)
   const [showAddTechnique, setShowAddTechnique] = useState(false)
   const [editingTechnique, setEditingTechnique] = useState<ExerciseTechnique | null>(null)
   const [executionTechnique, setExecutionTechnique] = useState<ExerciseTechnique | null>(null)
-  const [detectionRefreshKey, setDetectionRefreshKey] = useState(0)
   const [confirmStart, setConfirmStart] = useState(false)
   const [confirmComplete, setConfirmComplete] = useState(false)
   const [confirmReopen, setConfirmReopen] = useState(false)
@@ -736,41 +777,16 @@ export function ExerciseDetailPage() {
   // Tactic coverage section collapsed state
   const [tacticSectionExpanded, setTacticSectionExpanded] = useState(true)
 
-  // Tactic-level statistics
-  const [tacticStats, setTacticStats] = useState<TacticStats[]>([])
-
-  // Detection statistics for donut charts
-  const [detectionStats, setDetectionStats] = useState({
-    // Tool detection
-    toolDetected: 0,
-    toolNotDetected: 0,
-    toolNotApplicable: 0,
-    // SIEM detection
-    siemDetected: 0,
-    siemNotDetected: 0,
-    siemNotApplicable: 0,
-    // Final status (combined)
-    finalDetected: 0,      // SIEM detected
-    finalPartial: 0,       // Only tool detected
-    finalNotDetected: 0,   // Neither detected (has detection but none detected)
-    finalNotApplicable: 0, // Both N/A (counts as not detected but shown separately)
-    finalPending: 0,       // Has execution but no detection registered
-    finalNotExecuted: 0,   // No execution at all
-    // Totals
-    totalTechniques: 0,
-    totalWithExecutions: 0,
-    totalWithDetections: 0,
-  })
-
   // Polling interval for real-time updates (5 seconds)
   const POLLING_INTERVAL = 5000
 
   const { data: exercise, isLoading } = useExercise(id!)
   const { data: members } = useExerciseMembers(id!)
-  // Enable polling for techniques - but pause during drag to avoid conflicts
-  const { data: techniques, dataUpdatedAt } = useExerciseTechniques(id!, {
+  // Unified state endpoint - replaces multiple separate polling queries
+  const { data: exerciseState } = useExerciseState(id!, {
     refetchInterval: isDragging ? false : POLLING_INTERVAL,
   })
+  const techniques = exerciseState?.techniques
 
   const startExercise = useStartExercise()
   const completeExercise = useCompleteExercise()
@@ -791,139 +807,63 @@ export function ExerciseDetailPage() {
   // Use local state during drag, fall back to server data
   const displayTechniques = localTechniques ?? techniques ?? []
 
-  // Auto-increment detection refresh key when techniques data updates from polling
-  // Using dataUpdatedAt ensures we refresh on every poll cycle, even if data hasn't changed
-  useEffect(() => {
-    if (dataUpdatedAt && !isDragging && !localTechniques) {
-      // Trigger detection refresh when server data updates
-      setDetectionRefreshKey(prev => prev + 1)
-    }
-  }, [dataUpdatedAt, isDragging, localTechniques])
-
-  // Fetch detection statistics from the unified backend endpoint
-  useEffect(() => {
-    if (!id || !exercise || exercise.status === 'draft') {
-      setDetectionStats({
-        toolDetected: 0,
-        toolNotDetected: 0,
-        toolNotApplicable: 0,
-        siemDetected: 0,
-        siemNotDetected: 0,
-        siemNotApplicable: 0,
-        finalDetected: 0,
-        finalPartial: 0,
-        finalNotDetected: 0,
-        finalNotApplicable: 0,
-        finalPending: 0,
-        finalNotExecuted: 0,
-        totalTechniques: 0,
-        totalWithExecutions: 0,
-        totalWithDetections: 0,
-      })
-      setTacticStats([])
-      return
-    }
-
-    let isMounted = true
-
-    const fetchStats = async () => {
-      try {
-        const stats: DetectionStatsResponse = await exercisesApi.getDetectionStats(id)
-
-        if (!isMounted) return
-
-        // Map API response to local state
-        setDetectionStats({
-          toolDetected: stats.tool_detected,
-          toolNotDetected: stats.tool_not_detected,
-          toolNotApplicable: stats.tool_not_applicable,
-          siemDetected: stats.siem_detected,
-          siemNotDetected: stats.siem_not_detected,
-          siemNotApplicable: stats.siem_not_applicable,
-          finalDetected: stats.final_detected,
-          finalPartial: stats.final_partial,
-          finalNotDetected: stats.final_not_detected,
-          finalNotApplicable: stats.final_not_applicable,
-          finalPending: stats.final_pending,
-          finalNotExecuted: stats.final_not_executed,
-          totalTechniques: stats.total_techniques,
-          totalWithExecutions: stats.total_with_execution,
-          totalWithDetections: stats.total_with_detection,
-        })
-
-        // Map tactic stats from API (snake_case to camelCase) and ensure all MITRE tactics are present
-        const tacticMap = new Map<string, TacticStats>()
-
-        // Pre-populate all MITRE ATT&CK tactics with empty stats
-        for (const tactic of TACTIC_ORDER) {
-          tacticMap.set(tactic, {
-            tactic,
-            total: 0,
-            detected: 0,
-            partial: 0,
-            notDetected: 0,
-            notApplicable: 0,
-            pending: 0,
-            notExecuted: 0,
-          })
-        }
-
-        // Merge API data into the tactic map
-        for (const apiStat of stats.tactic_stats) {
-          const tacticName = apiStat.tactic || 'No Tactic'
-          tacticMap.set(tacticName, {
-            tactic: tacticName,
-            total: apiStat.total,
-            detected: apiStat.detected,
-            partial: apiStat.partial,
-            notDetected: apiStat.not_detected,
-            notApplicable: apiStat.not_applicable,
-            pending: apiStat.pending,
-            notExecuted: apiStat.not_executed,
-          })
-        }
-
-        // Sort tactics by MITRE order, put unknown tactics at the end
-        const sortedTactics = Array.from(tacticMap.values()).sort((a, b) => {
-          const aIndex = TACTIC_ORDER.indexOf(a.tactic)
-          const bIndex = TACTIC_ORDER.indexOf(b.tactic)
-          // Put unknown tactics at end
-          if (aIndex === -1 && bIndex === -1) return a.tactic.localeCompare(b.tactic)
-          if (aIndex === -1) return 1
-          if (bIndex === -1) return -1
-          return aIndex - bIndex
-        })
-        setTacticStats(sortedTactics)
-      } catch (error) {
-        console.error('Error fetching detection stats:', error)
-        // Reset stats on error
-        setDetectionStats({
-          toolDetected: 0,
-          toolNotDetected: 0,
-          toolNotApplicable: 0,
-          siemDetected: 0,
-          siemNotDetected: 0,
-          siemNotApplicable: 0,
-          finalDetected: 0,
-          finalPartial: 0,
-          finalNotDetected: 0,
-          finalNotApplicable: 0,
-          finalPending: 0,
-          finalNotExecuted: 0,
-          totalTechniques: 0,
-          totalWithExecutions: 0,
-          totalWithDetections: 0,
-        })
-        setTacticStats([])
+  // Derive detection stats and tactic stats from unified state
+  const detectionStats = React.useMemo(() => {
+    const s = exerciseState?.detection_stats
+    if (!s || !exercise || exercise.status === 'draft') {
+      return {
+        toolDetected: 0, toolNotDetected: 0, toolNotApplicable: 0, toolBlocked: 0,
+        siemDetected: 0, siemNotDetected: 0, siemNotApplicable: 0,
+        finalDetected: 0, finalBlocked: 0, finalPartial: 0, finalNotDetected: 0,
+        finalNotApplicable: 0, finalPending: 0, finalNotExecuted: 0,
+        toolRate: 0, siemRate: 0,
+        totalTechniques: 0, totalWithExecutions: 0, totalWithDetections: 0,
       }
     }
-
-    fetchStats()
-
-    return () => {
-      isMounted = false
+    return {
+      toolDetected: s.tool_detected, toolNotDetected: s.tool_not_detected,
+      toolNotApplicable: s.tool_not_applicable, toolBlocked: s.tool_blocked,
+      siemDetected: s.siem_detected, siemNotDetected: s.siem_not_detected,
+      siemNotApplicable: s.siem_not_applicable,
+      finalDetected: s.final_detected, finalBlocked: s.final_blocked,
+      finalPartial: s.final_partial, finalNotDetected: s.final_not_detected,
+      finalNotApplicable: s.final_not_applicable, finalPending: s.final_pending,
+      finalNotExecuted: s.final_not_executed,
+      toolRate: s.tool_rate, siemRate: s.siem_rate,
+      totalTechniques: s.total_techniques, totalWithExecutions: s.total_with_execution,
+      totalWithDetections: s.total_with_detection,
     }
-  }, [id, exercise, detectionRefreshKey])
+  }, [exerciseState?.detection_stats, exercise])
+
+  const tacticStats = React.useMemo(() => {
+    const stats = exerciseState?.detection_stats?.tactic_stats
+    if (!stats || !exercise || exercise.status === 'draft') return []
+
+    const tacticMap = new Map<string, TacticStats>()
+    for (const tactic of TACTIC_ORDER) {
+      tacticMap.set(tactic, {
+        tactic, total: 0, detected: 0, blocked: 0, partial: 0,
+        notDetected: 0, notApplicable: 0, pending: 0, notExecuted: 0,
+      })
+    }
+    for (const apiStat of stats) {
+      const tacticName = apiStat.tactic || 'No Tactic'
+      tacticMap.set(tacticName, {
+        tactic: tacticName, total: apiStat.total, detected: apiStat.detected,
+        blocked: apiStat.blocked, partial: apiStat.partial,
+        notDetected: apiStat.not_detected, notApplicable: apiStat.not_applicable,
+        pending: apiStat.pending, notExecuted: apiStat.not_executed,
+      })
+    }
+    return Array.from(tacticMap.values()).sort((a, b) => {
+      const aIndex = TACTIC_ORDER.indexOf(a.tactic)
+      const bIndex = TACTIC_ORDER.indexOf(b.tactic)
+      if (aIndex === -1 && bIndex === -1) return a.tactic.localeCompare(b.tactic)
+      if (aIndex === -1) return 1
+      if (bIndex === -1) return -1
+      return aIndex - bIndex
+    })
+  }, [exerciseState?.detection_stats?.tactic_stats, exercise])
 
   const handleDragStart = () => {
     setIsDragging(true)
@@ -1117,6 +1057,13 @@ export function ExerciseDetailPage() {
         </div>
       </div>
 
+      {/* Requirement Alerts */}
+      <RequirementAlertsPanel
+        exerciseId={id!}
+        canFulfill={canFulfillRequirements}
+        alerts={exerciseState?.requirement_alerts}
+      />
+
       {/* Description */}
       {exercise.description && (
         <div className="bg-white rounded-lg shadow-sm p-6">
@@ -1136,17 +1083,22 @@ export function ExerciseDetailPage() {
               <DonutChart
                 title={t('detection.toolLabel')}
                 size={140}
-                centerValue={`${detectionStats.totalTechniques > 0 ? Math.round((detectionStats.toolDetected / detectionStats.totalTechniques) * 100) : 0}%`}
+                centerValue={`${Math.round(detectionStats.toolRate)}%`}
                 centerLabel={t('detection.detected')}
                 segments={[
                   {
                     label: t('detection.detected'),
-                    value: detectionStats.toolDetected,
+                    value: detectionStats.toolDetected - detectionStats.toolBlocked,
                     color: '#22c55e', // green-500
                   },
                   {
+                    label: t('detection.status.blocked'),
+                    value: detectionStats.toolBlocked,
+                    color: '#3b82f6', // blue-500
+                  },
+                  {
                     label: t('detection.notDetected'),
-                    value: detectionStats.toolNotDetected + detectionStats.finalPending + detectionStats.finalNotExecuted,
+                    value: detectionStats.totalTechniques - detectionStats.toolDetected - detectionStats.toolNotApplicable,
                     color: '#ef4444', // red-500
                   },
                   {
@@ -1161,7 +1113,7 @@ export function ExerciseDetailPage() {
               <DonutChart
                 title={t('detection.siemLabel')}
                 size={140}
-                centerValue={`${detectionStats.totalTechniques > 0 ? Math.round((detectionStats.siemDetected / detectionStats.totalTechniques) * 100) : 0}%`}
+                centerValue={`${Math.round(detectionStats.siemRate)}%`}
                 centerLabel={t('detection.detected')}
                 segments={[
                   {
@@ -1171,7 +1123,7 @@ export function ExerciseDetailPage() {
                   },
                   {
                     label: t('detection.notDetected'),
-                    value: detectionStats.siemNotDetected + detectionStats.finalPending + detectionStats.finalNotExecuted,
+                    value: detectionStats.totalTechniques - detectionStats.siemDetected - detectionStats.siemNotApplicable,
                     color: '#ef4444', // red-500
                   },
                   {
@@ -1198,6 +1150,11 @@ export function ExerciseDetailPage() {
                     label: t('detection.status.detected'),
                     value: detectionStats.finalDetected,
                     color: '#22c55e', // green-500
+                  },
+                  {
+                    label: t('detection.status.blocked'),
+                    value: detectionStats.finalBlocked,
+                    color: '#3b82f6', // blue-500
                   },
                   {
                     label: t('detection.status.partial'),
@@ -1352,6 +1309,14 @@ export function ExerciseDetailPage() {
         )}
       </div>
 
+      {/* Requirements */}
+      <RequirementsSection
+        exerciseId={id!}
+        canManage={canManageTechniques}
+        canFulfill={canFulfillRequirements}
+        requirements={exerciseState?.requirements}
+      />
+
       {/* Techniques */}
       <div className="bg-white rounded-lg shadow-sm p-6">
         <div className="flex items-center justify-between mb-4">
@@ -1425,8 +1390,9 @@ export function ExerciseDetailPage() {
                       onOpenExecution={setExecutionTechnique}
                       exerciseActive={exercise.status === 'active'}
                       exerciseId={exercise.id}
+                      detectionState={exerciseState?.technique_detections?.[tech.id]}
+                      scenarioRequirements={exerciseState?.technique_requirements?.[tech.id]}
                       canReorder={canReorder}
-                      refreshKey={detectionRefreshKey}
                       t={t}
                     />
                   ))}
@@ -1579,7 +1545,7 @@ export function ExerciseDetailPage() {
         technique={executionTechnique}
         isOpen={!!executionTechnique}
         onClose={() => setExecutionTechnique(null)}
-        onDetectionChange={() => setDetectionRefreshKey(prev => prev + 1)}
+        onDetectionChange={() => queryClient.invalidateQueries({ queryKey: exerciseKeys.state(id!) })}
       />
     </div>
   )

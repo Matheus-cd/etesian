@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Search, X, Check } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { Search, X, Check, ClipboardList } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { useAddTechnique } from '../hooks/useExercises'
+import { useAddTechnique, useExerciseRequirements, useSetScenarioRequirements } from '../hooks/useExercises'
 import apiClient from '@/lib/api-client'
 
 interface Technique {
@@ -32,9 +33,13 @@ export function AddTechniqueModal({
   const [selectedTechnique, setSelectedTechnique] = useState<Technique | null>(null)
   const [notes, setNotes] = useState('')
   const [selectedTactic, setSelectedTactic] = useState<string>('')
+  const [selectedRequirementIds, setSelectedRequirementIds] = useState<string[]>([])
   const searchInputRef = useRef<HTMLInputElement>(null)
 
+  const { t } = useTranslation()
   const addTechnique = useAddTechnique()
+  const { data: requirements = [] } = useExerciseRequirements(exerciseId)
+  const setScenarioRequirements = useSetScenarioRequirements()
 
   useEffect(() => {
     if (isOpen) {
@@ -44,6 +49,7 @@ export function AddTechniqueModal({
       setSelectedTechnique(null)
       setNotes('')
       setSelectedTactic('')
+      setSelectedRequirementIds([])
       // Focus search input
       setTimeout(() => searchInputRef.current?.focus(), 100)
     }
@@ -114,13 +120,28 @@ export function AddTechniqueModal({
         },
       },
       {
-        onSuccess: () => {
+        onSuccess: (newTechnique) => {
+          // Set scenario requirements if any were selected
+          if (selectedRequirementIds.length > 0 && newTechnique?.id) {
+            setScenarioRequirements.mutate({
+              exerciseId,
+              techniqueId: newTechnique.id,
+              requirementIds: selectedRequirementIds,
+            })
+          }
           setSelectedTechnique(null)
           setNotes('')
           setSearchQuery('')
+          setSelectedRequirementIds([])
           onClose()
         },
       }
+    )
+  }
+
+  const toggleRequirement = (reqId: string) => {
+    setSelectedRequirementIds((prev) =>
+      prev.includes(reqId) ? prev.filter((id) => id !== reqId) : [...prev, reqId]
     )
   }
 
@@ -277,6 +298,47 @@ export function AddTechniqueModal({
                 <X className="h-4 w-4" />
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Requirements */}
+        {requirements.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              <ClipboardList className="inline h-3.5 w-3.5 mr-1" />
+              {t('requirement.scenarioRequirements')}
+            </label>
+            <div className="border border-gray-200 rounded-lg max-h-32 overflow-y-auto">
+              {requirements.map((req) => (
+                <button
+                  key={req.id}
+                  type="button"
+                  onClick={() => toggleRequirement(req.id)}
+                  className={`w-full text-left px-3 py-2 text-sm border-b border-gray-100 last:border-b-0 hover:bg-gray-50 flex items-center gap-2 ${
+                    selectedRequirementIds.includes(req.id) ? 'bg-indigo-50' : ''
+                  }`}
+                >
+                  <div className={`h-4 w-4 rounded border flex-shrink-0 flex items-center justify-center ${
+                    selectedRequirementIds.includes(req.id)
+                      ? 'bg-indigo-600 border-indigo-600'
+                      : 'border-gray-300'
+                  }`}>
+                    {selectedRequirementIds.includes(req.id) && (
+                      <Check className="h-3 w-3 text-white" />
+                    )}
+                  </div>
+                  <span className="truncate">{req.title}</span>
+                  <span className="text-xs text-gray-400 ml-auto flex-shrink-0">
+                    {t(`requirement.categories.${req.category}`)}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {selectedRequirementIds.length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                {selectedRequirementIds.length} {t('requirement.selectedRequirements').toLowerCase()}
+              </p>
+            )}
           </div>
         )}
 
